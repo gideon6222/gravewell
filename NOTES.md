@@ -70,8 +70,9 @@ target.
 
 1. **`fill` is stored per CELL, not per corner.** The plan says corners. Collision is on the
    cell grid, and a per-corner store lets one dig bleed into three neighbouring cells that
-   collision still calls solid. Corners are averaged from cells at contour time instead, which
-   is standard marching squares and keeps one number doing all three jobs.
+   collision still calls solid. The first version averaged cells into shared corners at contour
+   time; **see correction 6 below, which replaced that too** - the contour runs on the lattice
+   of cell centres and samples the fill directly.
 2. **Passability and the contour isovalue are two constants, not one.** `OPEN_FILL` (fully
    cut) decides what the ship can fly through; `CONTOUR_ISO` decides what the surface looks
    like. Sharing one number at 0.5 meant a half-cut cell was flyable, so the ship passed
