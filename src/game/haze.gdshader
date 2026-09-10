@@ -79,7 +79,17 @@ void fragment() {
 	// number driving both is the whole point of the air being simulated.
 	float scatter = 1.0 + density * 0.8;
 
-	float lit = flood * falloff * beam * shadow * strength * scatter;
+	// **A near-field ramp.** Without one the air term is brightest at zero
+	// distance, which is exactly where the ship is, and the ship renders as a
+	// white blob with no readable shape whatever its own materials say. Two
+	// rounds went into the hull's metallic and albedo before the blob turned out
+	// to be an additive quad drawn over it.
+	//
+	// It is also the physically right shape: you do not see a beam in the air at
+	// its own source, because there is no path length there to scatter along.
+	float near = smoothstep(0.0, 1.8, dist);
+
+	float lit = flood * falloff * beam * shadow * strength * scatter * near;
 	ALBEDO = tint * lit;
 	ALPHA = 1.0;
 }

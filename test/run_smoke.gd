@@ -45,6 +45,7 @@ func _initialize() -> void:
 	_check_the_controls_are_anchored(main)
 	_check_there_is_always_a_way_on(main)
 	_check_the_buttons_do_their_jobs(main)
+	_check_the_ship_is_a_real_machine(main)
 
 	main.free()
 	_finish()
@@ -174,6 +175,56 @@ func _check_the_buttons_do_their_jobs(main) -> void:
 	main.sim.load_kg = 0.0
 	main.advance(0.1)
 	_t.eq(main._uplink_btn.disabled, true, "UPLINK is offered with an empty hold")
+
+
+## The ship is modelled by hand because there was nothing to import, so the
+## things that make it a machine rather than a shape are worth asserting.
+func _check_the_ship_is_a_real_machine(main) -> void:
+	_t.begin("smoke > the ship is a machine with parts")
+	var ship: Ship = main._ship
+	_t.ok(ship.drill != null, "the drill assembly is missing")
+	_t.gt(float(ship.get_child_count()), 6.0, "the hull is one mesh, so it is a shape and not a machine")
+
+	# Upgrades bolt on and are visible in play - he asked for that twice. The
+	# mounts exist from this milestone so M7 hangs a part on one and it lands
+	# where the hull expects it.
+	for slot in ["tank", "plating", "instrument", "ordnance"]:
+		_t.ok(ship.mounts.has(slot), "there is nowhere to bolt the %s upgrade on" % slot)
+
+	# Every mesh in the rig is on the ship's own render layer. One left on layer
+	# 1 would be the single object in the scene lit by both light models, and it
+	# would look it.
+	var stray := _count_wrong_layer(ship)
+	_t.eq(stray, 0, "%d of the ship's meshes are not on its own render layer" % stray)
+
+	# The nose points where it is digging. His words exactly.
+	ship.aim(Vector2(0, 1))
+	var down := ship.rotation.z
+	ship.aim(Vector2(1, 0))
+	_t.ok(absf(ship.rotation.z - down) > 1.0, "the ship does not turn to face where it is digging")
+
+	# The thrusters light with the throttle, so thrust is something you can see.
+	ship.drive(false, 0.0, 0.016)
+	var idle: float = ship._hot.emission_energy_multiplier
+	ship.drive(false, 1.0, 0.016)
+	_t.gt(ship._hot.emission_energy_multiplier, idle + 0.5,
+		"the thruster nozzles do not light when the ship is under power")
+
+	# And the bit spins only while it is cutting.
+	var before: float = ship.drill.rotation.y
+	ship.drive(false, 0.0, 0.5)
+	_t.approx(ship.drill.rotation.y, before, 1e-6, "the drill spins when it is not cutting")
+	ship.drive(true, 0.0, 0.5)
+	_t.ok(absf(ship.drill.rotation.y - before) > 0.1, "the drill does not spin when it is cutting")
+
+
+func _count_wrong_layer(n: Node) -> int:
+	var bad := 0
+	if n is VisualInstance3D and (n as VisualInstance3D).layers != Ship.LAYER:
+		bad += 1
+	for c in n.get_children():
+		bad += _count_wrong_layer(c)
+	return bad
 
 
 func _finish() -> void:

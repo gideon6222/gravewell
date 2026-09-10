@@ -164,3 +164,30 @@ across the sim/render wall:
   correct (a straight shaft has no detour to attenuate) but means the flood's
   character only shows once a descent has branches in it. Worth checking on a
   filmed run rather than a single frame.
+
+## M3: the ship (2026-09-10, 0.4.0)
+
+Modelled by hand from prisms, because the asset scout found no photoreal CC0
+ship or drone anywhere. No spheres: "a sphere reads as a bubble at any size",
+and Coreward's sphere cockpit is what got the ship called "bubbly and
+cartoonish". The four upgrade mount points exist from this milestone even though
+nothing hangs on them until M7, so a part lands where the hull expects it.
+
+### Two more things found rather than reasoned
+
+9. **The white blob was not the ship.** Two rounds went into the hull's metallic
+   and albedo before the blob turned out to be the additive haze quad, drawn in
+   FRONT of the ship and brightest at exactly zero distance from the lamp. The
+   haze now sits behind the ship inside the tunnel volume, and it has a
+   near-field ramp - which is also the physically right shape, because there is
+   no path length to scatter along at a beam's own source.
+10. **Metallic 0.55 on the hull was wrong for this scene.** A metal with nothing
+    to reflect is black plus hotspots, and this scene is a hole in the ground
+    with a background colour and no sky. Dropped to 0.12 and the shape came back.
+
+### Framing
+
+`CAM_DIST` is 15.5, about six cells across, which puts the ship at roughly 60 px
+on the phone. Under about sixty pixels a machine reads as a shape rather than as
+a machine. **Framing is an upgrade**: the lamp ladder pulls this back at M7, and
+the darkness is what justifies the tight frame at the start.

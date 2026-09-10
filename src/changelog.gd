@@ -9,9 +9,20 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.3.0"
+const VERSION := "0.4.0"
 
 const RELEASES := [
+	{
+		"version": "0.4.0",
+		"date": "2026-09-10",
+		"title": "A real ship",
+		"notes": [
+			"The ship is a machine now: a plated hull, a cockpit, a drill assembly and two thrusters.",
+			"The drill spins while it is cutting and the nozzles light with the throttle.",
+			"The nose turns to face whatever you are digging into.",
+			"The frame is tighter, and the dark is what justifies it.",
+		],
+	},
 	{
 		"version": "0.3.0",
 		"date": "2026-09-10",

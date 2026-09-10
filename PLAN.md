@@ -916,7 +916,7 @@ half-finished on `main`.
       `ArrayMesh`, PBR rock under a moving lamp, the flood fill, the field texture, the shadow
       fan, surface and air as two lights, air density wired to fog and lamp reach, dust motes.
       *Proves it:* `test_contour`, `test_light`, `test_air`. *Film:* `descent`.
-- [ ] **M3. The ship, modelled by hand.** The hull, the drill head, the lamp housing, thrusters
+- [x] **M3. The ship, modelled by hand.** (0.4.0) The hull, the drill head, the lamp housing, thrusters
       and the mount points that upgrades bolt onto, in the same style family and the same metre
       scale as the Poly Haven industrial props. Its own key light on its own layer, excluded
       from the world's light through `light_cull_mask` and `layers`, so buying a lamp upgrade

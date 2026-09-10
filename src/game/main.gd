@@ -23,19 +23,29 @@ const HALF_D := 24
 
 const CAM_FOV := 46.0        ## vertical degrees. Portrait's horizontal cone is
                              ## about 22 degrees at this aspect
-const CAM_DIST := 18.0       ## about 7 cells across and 15 down
+## 15.5 units puts about 6 cells across the frame, which makes the ship roughly
+## 60 px on the phone. Under about sixty pixels a machine reads as a shape rather
+## than as a machine, and Coreward's ship was thirty and got called "bubbly".
+## **Framing is an upgrade**: the lamp ladder pulls this back, and the darkness is
+## what justifies the tight frame at the start. That is his suggestion and it is
+## the right shape - a lamp that only grows a radius while the camera frames a
+## fixed number of rows can never be felt, because the frame is always inside the
+## lit circle.
+const CAM_DIST := 15.5
 const CAM_RATE := 6.0        ## exponential follow
 
-## The haze quad sits just behind the rock's front face, so the rock occludes it
-## and the glow shows only through the openings the player has cut.
-const HAZE_Z := 0.42
+## The haze quad sits BEHIND the ship and behind the rock's front face, inside
+## the tunnel volume. In front of the ship it is an additive splat drawn over the
+## hull; behind it, the rock and the ship both occlude it and the glow shows only
+## where the player has actually cut.
+const HAZE_Z := -0.35
 
 var sim: Sim
 
 var _cam: Camera3D
 var _terrain: Terrain
 var _haze: MeshInstance3D
-var _ship: MeshInstance3D
+var _ship: Ship
 var _lamp: OmniLight3D
 var _field := LightField.new()
 var _rock_mat: ShaderMaterial
@@ -145,25 +155,19 @@ func _build_world() -> void:
 	_haze.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_haze)
 
-	_ship = MeshInstance3D.new()
-	var hull := BoxMesh.new()
-	hull.size = Vector3(Tuning.SHIP_HALF * 2.0, Tuning.SHIP_HALF * 2.0, Tuning.SHIP_HALF * 2.0)
-	_ship.mesh = hull
-	var ship_mat := StandardMaterial3D.new()
-	ship_mat.albedo_color = Color(0.42, 0.44, 0.48)
-	ship_mat.roughness = 0.55
-	ship_mat.metallic = 0.45
-	_ship.material_override = ship_mat
-	_ship.layers = 2
+	_ship = Ship.new()
 	add_child(_ship)
 
 	# The lamp is the game's light. The ship gets its own key light on a
 	# separate layer at M2, because the world's light is an upgrade and the hull
 	# must not brighten when the player buys one.
 	_lamp = OmniLight3D.new()
-	_lamp.light_energy = 1.3
+	# Set against the rock, which the field lights at a gain of 1.7. The ship is
+	# the one object in the scene on the other light model, so the two have to be
+	# balanced by eye at the phone's aspect or the hull reads as a silhouette.
+	_lamp.light_energy = 1.9
 	_lamp.light_color = Color(1.0, 0.94, 0.84)
-	_lamp.omni_range = 4.0
+	_lamp.omni_range = 2.6
 	_lamp.shadow_enabled = false
 	# The rock is lit by the solved field, not by this lamp, so the lamp's job is
 	# now only to light the SHIP. `light_cull_mask` and `layers` really do
@@ -330,6 +334,11 @@ func _sync_camera(dt: float) -> void:
 
 	var sp := Vector3(sim.flight.pos.x, DEPTH_SIGN * sim.flight.pos.y, 0.0)
 	_ship.position = sp
+	_ship.aim(sim.flight.heading)
+	# Throttle is read from the simulation's own velocity rather than from the
+	# input, so the nozzles show what the ship is doing and not what was asked.
+	var throttle: float = clampf(sim.flight.vel.length() / maxf(Tuning.TOP_SPEED, 0.001), 0.0, 1.0)
+	_ship.drive(_drilling, throttle, dt)
 	# **The rock is not lit by this light.** It is lit by the solved field in
 	# `rock.gdshader`, which is the whole technique: a Godot light does not know
 	# the rock is there and would light an unopened side tunnel exactly as
@@ -341,8 +350,6 @@ func _sync_camera(dt: float) -> void:
 	# It matters because the world's light is an upgrade, and the hull must not
 	# get brighter when the player buys one.
 	_lamp.position = sp + Vector3(0.0, 0.0, 1.6)
-	_lamp.omni_range = 4.0
-	_lamp.light_energy = 1.3
 
 
 ## Rebuild the rock and re-solve the light, but only when something changed.
