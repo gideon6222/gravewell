@@ -45,6 +45,8 @@ var sim: Sim
 var _cam: Camera3D
 var _terrain: Terrain
 var _haze: MeshInstance3D
+var _collapse: MeshInstance3D
+var _collapse_mat: ShaderMaterial
 var _ship: Ship
 var _lamp: OmniLight3D
 var _field := LightField.new()
@@ -53,11 +55,7 @@ var _haze_mat: ShaderMaterial
 var _env: Environment
 var _last_cell := Vector2i(99999, 99999)
 var _ui: Control
-var _hud: Label
-var _readout: Label
-var _pad: Control
-var _lamp_btn: Button
-var _uplink_btn: Button
+var _hud: Hud
 
 var _pad_vec := Vector2.ZERO
 var _pad_touch := -1
@@ -155,6 +153,20 @@ func _build_world() -> void:
 	_haze.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	add_child(_haze)
 
+	# What comes up behind you once the core is free. Drawn from the SAME number
+	# the simulation kills the player with, so the picture cannot promise a
+	# second the rules do not give.
+	_collapse_mat = ShaderMaterial.new()
+	_collapse_mat.shader = load("res://src/game/collapse.gdshader")
+	var cq := QuadMesh.new()
+	cq.size = Vector2(float(Tuning.HALF_WIDTH) * 2.6, float(HALF_D) * 2.6)
+	_collapse = MeshInstance3D.new()
+	_collapse.mesh = cq
+	_collapse.material_override = _collapse_mat
+	_collapse.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_collapse.visible = false
+	add_child(_collapse)
+
 	_ship = Ship.new()
 	add_child(_ship)
 
@@ -181,50 +193,21 @@ func _build_ui() -> void:
 	var layer := CanvasLayer.new()
 	add_child(layer)
 
-	# One full-rect Control that everything anchors to. Nothing in the HUD is
-	# positioned against a literal screen size: the project keeps its base WIDTH
-	# and extends the HEIGHT, so a control placed against the base 1920 lands
-	# hundreds of pixels high on a 2340-tall phone.
+	# One full-rect Control that everything anchors to, with the safe area
+	# applied as its margins. Nothing inside is positioned against a literal
+	# screen size: the project keeps its base WIDTH and extends the HEIGHT, so a
+	# control placed against the base 1920 lands hundreds of pixels high on a
+	# 2340-tall phone and the report is that the buttons are half an inch off.
 	_ui = Control.new()
 	_ui.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(_ui)
 
-	_hud = Label.new()
-	_hud.set_anchors_preset(Control.PRESET_TOP_WIDE)
-	_hud.offset_top = 40.0
-	_hud.offset_left = 24.0
-	_hud.offset_right = -24.0
-	_hud.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_hud = Hud.new()
+	_hud.setup(sim)
 	_ui.add_child(_hud)
-
-	# The rate readout. A number beats a bar when the player needs causation.
-	_readout = Label.new()
-	_readout.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	_readout.offset_top = 150.0
-	_readout.offset_left = 24.0
-	_readout.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	_ui.add_child(_readout)
-
-	_pad = Control.new()
-	_pad.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
-	_pad.custom_minimum_size = Vector2(300, 300)
-	_pad.size = Vector2(300, 300)
-	_pad.offset_left = -150.0
-	_pad.offset_right = 150.0
-	# Anchored to the BOTTOM and offset upward, so the distance from the real
-	# bottom edge is fixed at any aspect ratio.
-	_pad.offset_top = -340.0
-	_pad.offset_bottom = -40.0
-	_pad.mouse_filter = Control.MOUSE_FILTER_STOP
-	_pad.gui_input.connect(_on_pad_input)
-	_ui.add_child(_pad)
-
-	_lamp_btn = _make_button("LAMP", -300.0, -170.0)
-	_lamp_btn.pressed.connect(func(): sim.cycle_lamp())
-	_uplink_btn = _make_button("UPLINK", -300.0, -320.0)
-	_uplink_btn.pressed.connect(func(): sim.uplink())
+	_hud._lamp_btn.pressed.connect(func(): sim.cycle_lamp())
+	_hud._uplink_btn.pressed.connect(func(): sim.uplink())
 
 	_apply_safe_area()
 	# `get_viewport()` is null until the node is inside the tree, and a harness
@@ -236,76 +219,52 @@ func _build_ui() -> void:
 		vp.size_changed.connect(_apply_safe_area)
 
 
-## Every interactive control handles its own input, so its hit box and its
-## drawing are one object. A manual hit test in `_unhandled_input` is a second
-## source of truth for where a button is, and it is how a control ends up half
-## an inch from where it looks.
-func _make_button(text: String, from_right: float, from_bottom: float) -> Button:
-	var b := Button.new()
-	b.text = text
-	b.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
-	b.custom_minimum_size = Vector2(200, 110)   ## well over 48 dp
-	b.offset_left = from_right
-	b.offset_right = from_right + 200.0
-	b.offset_top = from_bottom
-	b.offset_bottom = from_bottom + 110.0
-	b.mouse_filter = Control.MOUSE_FILTER_STOP
-	_ui.add_child(b)
-	return b
-
-
 func _apply_safe_area() -> void:
 	var view := get_viewport()
 	if view == null:
 		return
+
+	# **The safe area is a mobile concept.** On desktop `get_display_safe_area()`
+	# returns the usable DESKTOP - the monitor minus the taskbar - which has
+	# nothing to do with this window, and applying it inset every control by
+	# about a hundred pixels. Measured: the d-pad's real rect sat 104 px above
+	# where its offsets said, so a filmed replay tapped empty space, the run
+	# filmed perfectly, and the ship never left the surface.
+	if not OS.has_feature("mobile"):
+		_ui.offset_left = 0.0
+		_ui.offset_top = 0.0
+		_ui.offset_right = 0.0
+		_ui.offset_bottom = 0.0
+		return
+
 	var safe := DisplayServer.get_display_safe_area()
-	var screen := DisplayServer.screen_get_size()
-	if screen.x <= 0 or screen.y <= 0:
+	# The WINDOW, not the screen. The safe area is in window pixels and the
+	# margins have to be in viewport units; dividing by the screen size mixes
+	# the monitor's pixels with the viewport's and the answer is arbitrary.
+	var win := DisplayServer.window_get_size()
+	if win.x <= 0 or win.y <= 0:
 		return
 	var vp := Vector2(view.get_visible_rect().size)
-	var sx := vp.x / float(screen.x)
-	var sy := vp.y / float(screen.y)
+	var sx := vp.x / float(win.x)
+	var sy := vp.y / float(win.y)
 	_ui.offset_left = float(safe.position.x) * sx
 	_ui.offset_top = float(safe.position.y) * sy
-	_ui.offset_right = -float(screen.x - safe.end.x) * sx
-	_ui.offset_bottom = -float(screen.y - safe.end.y) * sy
+	_ui.offset_right = -float(win.x - safe.end.x) * sx
+	_ui.offset_bottom = -float(win.y - safe.end.y) * sy
 
 
 # ── input ─────────────────────────────────────────────────────────────────
 
-## The d-pad reads as eight directions from where the finger sits relative to
-## the pad's own centre, so it is absolute rather than relative: the picture
-## always says which way the machine is pointing.
-func _on_pad_input(event: InputEvent) -> void:
-	if event is InputEventScreenTouch:
-		if event.pressed:
-			_pad_touch = event.index
-			_pad_vec = _dir_from(event.position)
-		elif event.index == _pad_touch:
-			_pad_touch = -1
-			_pad_vec = Vector2.ZERO
-		_pad.accept_event()
-	elif event is InputEventScreenDrag and event.index == _pad_touch:
-		_pad_vec = _dir_from(event.position)
-		_pad.accept_event()
-	elif event is InputEventMouseButton:
-		_pad_vec = _dir_from(event.position) if event.pressed else Vector2.ZERO
-		_pad.accept_event()
-	elif event is InputEventMouseMotion and _pad_vec != Vector2.ZERO:
-		_pad_vec = _dir_from(event.position)
-		_pad.accept_event()
+## The d-pad owns its own input and its own drawing, so the hit box and the
+## picture are one object. Main only reads what it decided.
+func _read_input() -> void:
+	_pad_vec = _hud.pad_vector()
+	# Digging and flying are the same held direction, which is what keeps the
+	# game to one thumb. The manifest being open stops both, or a player reading
+	# the manifest flies into a wall while they do it.
+	if _hud.manifest_open():
+		_pad_vec = Vector2.ZERO
 	_drilling = _pad_vec != Vector2.ZERO
-
-
-func _dir_from(local: Vector2) -> Vector2:
-	var c := _pad.size * 0.5
-	var v := local - c
-	if v.length() < 26.0:
-		return Vector2.ZERO
-	# Snap to eight. A d-pad that reports a continuous angle cannot be squared
-	# up to the grid, and squaring up is what makes a cut go straight.
-	var a := snappedf(v.angle(), PI / 4.0)
-	return Vector2(cos(a), sin(a))
 
 
 # ── the frame ─────────────────────────────────────────────────────────────
@@ -317,10 +276,11 @@ func _process(delta: float) -> void:
 
 
 func _tick(dt: float) -> void:
+	_read_input()
 	sim.step(_pad_vec, _drilling, dt)
 	_sync_camera(dt)
 	_redraw_world()
-	_draw_hud()
+	_hud.tick(dt)
 
 
 func _sync_camera(dt: float) -> void:
@@ -386,34 +346,25 @@ func _redraw_world() -> void:
 
 	_haze.position = Vector3(sim.flight.pos.x, DEPTH_SIGN * sim.flight.pos.y, HAZE_Z)
 
+	# The collapse rides in front of the rock: the player has to see it coming
+	# THROUGH the tunnel they are climbing, not behind the wall.
+	_collapse.visible = sim.phase == Sim.Phase.EXTRACTION
+	if _collapse.visible:
+		_collapse.position = Vector3(0.0, DEPTH_SIGN * sim.flight.pos.y, 0.9)
+		_collapse_mat.set_shader_parameter("rise_depth", sim.rising)
+
 	# The air is one number, and it drives the fog as well as the lamp, the drag
 	# and the hull load. Volumetric fog is Forward+ only, so this is the built-in
 	# depth fog doing the work, thickened by the same quantity.
 	if _env != null:
 		_env.fog_density = clampf(0.010 + density * 0.020, 0.0, 0.35)
-
-
-func _draw_hud() -> void:
-	_hud.text = "%d m    POWER %d%%    HULL %d%%    LOAD %.0f/%.0f kg    CR %s" % [
-		int(sim.flight.depth()),
-		int(sim.power_frac() * 100.0),
-		int(sim.hull_frac() * 100.0),
-		sim.load_kg, Tuning.HOLD_KG,
-		SimUtil.fmt(sim.credits),
-	]
-	var lines: Array[String] = []
-	var rate := sim.pressure_rate()
-	if rate > 0.0:
-		lines.append("HULL -%.1f/s" % rate)
-	if sim.phase == Sim.Phase.OVER:
-		lines.append("RECOVERED: %s" % sim.outcome)
-		lines.append("TAP LAMP TO DESCEND AGAIN")
-	elif sim.phase == Sim.Phase.EXTRACTION:
-		lines.append("CORE FREE. GET OUT.")
-	_readout.text = "\n".join(lines)
-	_uplink_btn.disabled = not sim.can_uplink()
-	_uplink_btn.text = "UPLINK\n%s cr" % SimUtil.fmt(sim.hold_value()) if sim.load_kg > 0.0 else "UPLINK"
-	_lamp_btn.text = ["FLOOD", "LANCE", "DARK"][sim.lamp_mode]
+		# The air changes colour at the same metre the rock does and the hull
+		# starts draining. Four things on one metre, from one table, so they
+		# cannot drift apart the way they did in Coreward.
+		var air := Tuning.air_at(sim.flight.depth())
+		_env.fog_light_color = _env.fog_light_color.lerp(air, 0.08)
+		_env.ambient_light_color = _env.ambient_light_color.lerp(
+			Color(air.r * 1.6 + 0.05, air.g * 1.6 + 0.06, air.b * 1.6 + 0.08), 0.08)
 
 
 # ── the harness seam ──────────────────────────────────────────────────────
@@ -433,10 +384,11 @@ func advance(seconds: float, step: float = 1.0 / 60.0) -> void:
 		_tick(step)
 
 
-## Drive the pad the way a thumb does, for tests and replays. Tests that assert
-## on movement go through this rather than writing `_pad_vec`, because a way in
-## that the input handler never calls is a missing feature with full coverage.
+## Drive the pad the way a thumb does, for tests and replays. It sets the PAD's
+## own vector rather than main's, so the value goes through the same path a
+## finger's does: a way in that the real control never produces is a missing
+## feature with full coverage.
 func press_pad(dir: Vector2) -> void:
 	_ensure_booted()
-	_pad_vec = dir
-	_drilling = dir != Vector2.ZERO
+	_hud._pad.vector = dir
+	_read_input()

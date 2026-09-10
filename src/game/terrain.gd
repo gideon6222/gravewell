@@ -125,10 +125,24 @@ func _colour_at(p: Vector2) -> Color:
 			if f > best_fill:
 				best_fill = f
 				best = Vector2i(bx + ox, bd + od)
+	# **A cache shows through one layer of rock**, as a discolouration in the
+	# wall rather than as a marker on a map. That is the whole design of the
+	# secret layer: you find it by reading the world. A cache therefore wins the
+	# colour vote over the rock in front of it, which it would otherwise lose on
+	# a tie of fills.
+	for od in range(0, 2):
+		for ox in range(0, 2):
+			if _world.material_at(bx + ox, bd + od) == Ore.CACHE:
+				best = Vector2i(bx + ox, bd + od)
+
 	var m := _world.material_at(best.x, best.y)
 	var col: Color = MAT_COLOUR.get(m, MAT_COLOUR[Ore.ROCK])
 	if _world.is_seam(best.x, best.y):
 		col = col.lightened(SEAM_LIGHTEN)
+	# The band tint. Half of the four things that land on the Line: the rock
+	# changes colour at exactly the metre the hull starts draining.
+	var t := Tuning.tint_at(float(best.y))
+	col = Color(col.r * t.r, col.g * t.g, col.b * t.b, col.a)
 	# Alpha is how much the material glows on its own, which the shader runs on
 	# its own gentler curve so a rich seam still reads through the dark.
 	col.a = Ore.glow_of(m)

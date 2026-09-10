@@ -27,6 +27,8 @@ signal found_cache(filament: int)
 signal hull_hit(speed: float)
 signal uplinked(value: float, cost: float)
 signal descent_over(outcome: String)
+signal core_cut(seconds: float)
+signal collapsed(x: int, d: int)
 
 enum Phase { DESCENT, EXTRACTION, OVER }
 
@@ -62,6 +64,13 @@ var drops: Array[Dictionary] = []
 var deepest: float = 0.0
 var descents: int = 0
 
+## The extraction. `rising` is the depth the world has died up to: everything
+## below it is gone, and when it reaches the ship the run is over.
+var extract_left: float = 0.0
+var extract_total: float = 0.0
+var rising: float = 0.0
+var carrying_core := false
+
 var _warned_line := false
 
 
@@ -81,6 +90,10 @@ func redescend() -> void:
 	hold = {}
 	load_kg = 0.0
 	_warned_line = false
+	carrying_core = false
+	extract_left = 0.0
+	extract_total = 0.0
+	rising = 0.0
 	descents += 1
 
 
@@ -115,6 +128,8 @@ func step(dir: Vector2, drilling: bool, dt: float) -> void:
 		_drill(target, dt)
 	_pressure(d, density, dt)
 	_collect()
+	if phase == Phase.EXTRACTION:
+		_extract(dt)
 
 	deepest = maxf(deepest, flight.depth())
 	if power <= 0.0:
@@ -148,7 +163,7 @@ func _drill(c: Vector2i, dt: float) -> void:
 		return
 
 	if bool(res["core"]):
-		phase = Phase.EXTRACTION
+		_begin_extraction(c)
 		return
 	if int(res["filament"]) > 0:
 		filament += int(res["filament"])
@@ -202,6 +217,76 @@ func _pressure(d: float, density: float, dt: float) -> void:
 	var excess: float = density - Tuning.density_at(float(Tuning.LINE_DEPTH))
 	if excess > 0.0:
 		hull -= Tuning.PRESSURE_RATE * excess * dt
+
+
+# ── the extraction ────────────────────────────────────────────────────────
+
+## Cutting the core free is the halfway point, not the end.
+##
+## The clock is derived from the route the player actually has, so a long
+## winding descent gets a long climb and a straight shaft gets a short one, and
+## neither is a guess. **Never let a hazard take the run**: if there were no way
+## out at all the extraction would be unwinnable by construction, so the bound is
+## computed here and asserted in `test_sim.gd`.
+func _begin_extraction(at: Vector2i) -> void:
+	phase = Phase.EXTRACTION
+	carrying_core = true
+	# The core is a physical object and it is heavy. Room is made for it by
+	# dumping what is in the hold, which is the last decision of the descent
+	# whether the player makes it deliberately or not.
+	while load_kg + Tuning.CORE_KG > Tuning.HOLD_KG and not hold.is_empty():
+		var worst := -1
+		var worst_value := 1.0e18
+		for m in hold.keys():
+			var per_kg: float = float(hold[m]["value"]) / maxf(float(hold[m]["kg"]), 0.001)
+			if per_kg < worst_value:
+				worst_value = per_kg
+				worst = int(m)
+		load_kg -= float(hold[worst]["kg"])
+		hold.erase(worst)
+	load_kg += Tuning.CORE_KG
+
+	var cell := Vector2i(int(roundf(flight.pos.x)), int(roundf(flight.pos.y)))
+	var route := world.route_out(cell.x, cell.y)
+	extract_total = Tuning.extraction_seconds(route, load_kg)
+	extract_left = extract_total
+	rising = float(Tuning.CORE_DEPTH) + 4.0
+	core_cut.emit(extract_total)
+
+
+## The world dying, from the bottom up. Everything below `rising` is gone; when
+## it reaches the ship the descent is over and the planet is spent.
+func _extract(dt: float) -> void:
+	extract_left -= dt
+	var frac: float = 1.0 - clampf(extract_left / maxf(extract_total, 0.001), 0.0, 1.0)
+	# It climbs the whole way in the time allowed, so the clock and the thing the
+	# player can SEE are the same quantity rather than two that must agree.
+	rising = lerpf(float(Tuning.CORE_DEPTH) + 4.0, -2.0, frac)
+
+	if flight.depth() <= 0.0:
+		_escape()
+		return
+	if flight.depth() >= rising:
+		_end("taken by the collapse")
+
+
+## Out, with the core. The only way a planet is finished.
+func _escape() -> void:
+	phase = Phase.OVER
+	outcome = "escaped with the core"
+	cores += 1
+	carrying_core = false
+	credits += hold_value()
+	hold = {}
+	load_kg = 0.0
+	descent_over.emit(outcome)
+
+
+## How far up the world has died, as a fraction, for the HUD and the renderer.
+func extract_frac() -> float:
+	if phase != Phase.EXTRACTION or extract_total <= 0.0:
+		return 0.0
+	return 1.0 - clampf(extract_left / extract_total, 0.0, 1.0)
 
 
 ## Hull loss a second at this depth, right now. A number beats a bar when the
@@ -259,6 +344,11 @@ func _end(why: String) -> void:
 	credits += lost * (1.0 - Tuning.RECOVERY_CUT)
 	hold = {}
 	load_kg = 0.0
+	# Failing the extraction costs the core and the planet, and never the save.
+	# Another world of this class comes round on the chart, so a mistake is a
+	# detour rather than a dead run: a permanently unwinnable save is the one
+	# outcome this must not have.
+	carrying_core = false
 	power = 0.0 if why == "out of power" else power
 	descent_over.emit(why)
 
@@ -321,4 +411,6 @@ func snapshot() -> Dictionary:
 		"drops": drops.size(),
 		"deepest": snappedf(deepest, 0.001),
 		"phase": phase,
+		"rising": snappedf(rising, 0.001),
+		"cores": cores,
 	}

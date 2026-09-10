@@ -9,9 +9,24 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.4.0"
+const VERSION := "0.5.0"
 
 const RELEASES := [
+	{
+		"version": "0.5.0",
+		"date": "2026-09-10",
+		"title": "Instruments, the Line, and getting out",
+		"notes": [
+			"Real instruments: power and hull up the left edge where your thumb never goes.",
+			"Depth large at the top, and the load reads out in kilograms you can tap for a manifest.",
+			"A drawn d-pad with eight directions, and buttons that go IN when you press them.",
+			"The Line at 80 m: the rock changes colour, the air warms and the hull starts draining, all on the same metre.",
+			"A cache shows through one layer of rock as a discolouration. Read the wall.",
+			"Cut the core free and the world starts dying from the bottom up.",
+			"The climb out is timed from the route you actually dug, so it is never impossible and never a stroll.",
+			"Fail it and you lose the core and the planet. You never lose the save.",
+		],
+	},
 	{
 		"version": "0.4.0",
 		"date": "2026-09-10",

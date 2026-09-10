@@ -191,3 +191,67 @@ nothing hangs on them until M7, so a part lands where the hull expects it.
 on the phone. Under about sixty pixels a machine reads as a shape rather than as
 a machine. **Framing is an upgrade**: the lamp ladder pulls this back at M7, and
 the darkness is what justifies the tight frame at the start.
+
+## M4, M5 and M6 (2026-09-10, 0.5.0)
+
+### The HUD
+
+Instruments rather than themed widgets, because where a readout sits matters
+more than how it looks. Power and hull are slim drawn columns up the LEFT edge,
+which is where the thumb never goes; depth is large at the top in a monospace
+face so the number does not jitter sideways as it climbs; load is top right and
+opens the manifest; and a rate readout appears beside whichever gauge is
+draining, because a number beats a bar when the player needs causation.
+
+The manifest scrolls by hand, because a `ScrollContainer` does not scroll from a
+finger at all, and its CLOSE is pinned to the bottom. Both are answers to
+recorded blockers.
+
+### The Line
+
+Four things land on 80 m and a test keeps them there: the rock tint, the air
+colour, the rock hardness and the hull drain. `BAND_TINT` makes the Line the
+biggest colour step in the table on purpose, because it is the boundary the
+player has to notice from a moving ship without being told.
+
+**A cache shows through one layer of rock** as a discolouration in the wall. That
+is the whole design of the secret layer in one rule: you find it by reading the
+world, not by a marker on a map.
+
+### The extraction
+
+Cutting the core free starts the world dying from the bottom up. The clock is
+**derived from the route actually dug** (the shortest open path, at the speed a
+laden ship makes, times a margin), so a winding descent gets a long climb and a
+straight shaft a short one, and neither is a guess. A flat timer would be a
+stroll on one and impossible on the other, with no way to know which.
+
+`World.collapse()` refuses any fill that would seal the only way out, and
+`test_sim.gd` falsifies that guard by also asserting a collapse beside a second
+route succeeds. Otherwise the test would pass by collapse never doing anything.
+
+### Two more things found rather than reasoned
+
+11. **The safe area is mobile-only.** Off a phone `get_display_safe_area()`
+    returns the usable desktop, and the conversion divided by the monitor size
+    rather than the window's, so every control sat 104 px above where its offsets
+    said. Every check passed: the smoke test asserts the controls are anchored
+    and they were, a headless viewport is 100x100 where wrong and right are
+    identical, and a screenshot looked fine because the drawing moved with the
+    hit box. **A filmed replay found it**: the taps landed in empty space, the run
+    filmed perfectly for sixty seconds and the ship never left the surface.
+    `scripts/rects.gd` now prints every control's real global rect from a real
+    window, which is the only honest way to write replay coordinates.
+12. **The APK came out at 1.42 GB.** Filming leaves 3,720 PNGs in `build/`, which
+    is inside the project, and the exporter packs anything inside the project
+    directory. `.gitignore` has no say in it. The size guard is the only check in
+    the whole gate that had an opinion, which is the argument for having one from
+    the first commit.
+
+### Measured
+
+| Date | What | Number | How |
+|---|---|---|---|
+| 2026-09-10 | Control displacement from the safe-area bug | **104 px upward** | `scripts/rects.gd` |
+| 2026-09-10 | APK with `build/` packed | **1,423,818,175 bytes** against a 28 MB budget | `check_size.gd` |
+| 2026-09-10 | APK with `build/` excluded | 27.54 MB, +2.10% drift | `check_size.gd` |

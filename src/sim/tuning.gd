@@ -58,6 +58,34 @@ const LINE_DEPTH := 80
 ## is slow even with nothing in the way.
 const BAND_HP: Array[float] = [1.0, 1.6, 2.4, 3.4, 4.6]
 
+## What the rock of each band LOOKS like, as a multiplier on the material colour.
+##
+## This is half of "four things land on the same metre". In Coreward the rock
+## band changed at 60 m and the heat threshold sat at 70, so the only marker of
+## the boundary was a number that never appears on screen, and his note was that
+## he could feel the line was there and could not find it.
+##
+## Band 2 is the Line, and it is deliberately the largest step in the table: the
+## rock goes from cold grey to smouldering in one metre, at exactly the metre the
+## hull starts draining.
+const BAND_TINT: Array[Color] = [
+	Color(1.00, 0.96, 0.90),   ## regolith: pale, dusty, warm
+	Color(0.86, 0.88, 0.94),   ## bedrock: cold grey, the control
+	Color(1.15, 0.80, 0.62),   ## THE LINE: smouldering, and it reads instantly
+	Color(1.05, 0.62, 0.44),   ## deep: ember
+	Color(0.90, 0.44, 0.34),   ## core shell: nearly black, veined hot
+]
+
+## What the AIR of each band looks like, which is the other half of the same
+## metre. The fog warms as the rock does, from one table, so they cannot drift.
+const BAND_AIR: Array[Color] = [
+	Color(0.050, 0.052, 0.060),
+	Color(0.044, 0.048, 0.058),
+	Color(0.090, 0.052, 0.038),
+	Color(0.120, 0.058, 0.036),
+	Color(0.150, 0.062, 0.034),
+]
+
 # ── flight ────────────────────────────────────────────────────────────────
 # CRAFT.md: reach top speed in about a fifth of a second and coast under a
 # cell. On a thumb, momentum reads as latency.
@@ -144,6 +172,26 @@ const UPLINK_PER_KG := 0.20
 # lose what is in the hold, and the tunnels stay open. His own Coreward design.
 const RECOVERY_CUT := 1.0         ## fraction of the hold lost. Insurance reduces it
 
+# ── the extraction ────────────────────────────────────────────────────────
+# Reaching the core is HALF of it. Cutting it free starts the world dying and
+# the only way out is the tunnel you dug, with the core aboard making you heavy
+# and lit up. It reuses the level that was just built, and it turns Coreward's
+# weakest beat - a modal dialog announcing that the planet exploded - into the
+# best thing in the game.
+
+## The core is a physical object in the hold, and it is heavy. Two thirds of the
+## whole capacity, so the climb out is genuinely laboured and the choice of what
+## to drop to make room for it is a real one.
+const CORE_KG := 40.0
+
+## What comes up behind you, in metres a second. Derived from the route rather
+## than set flat: `extraction_seconds()` turns the actual shortest open path into
+## a clock with a margin on it, so a long clever route and a straight shaft get
+## the tension they each deserve.
+const EXTRACT_MARGIN := 1.55       ## how much longer than the fastest climb
+const EXTRACT_MIN_S := 26.0        ## never a panic on a short route
+const EXTRACT_MAX_S := 150.0       ## never a stroll on a long one
+
 # ── the Line ──────────────────────────────────────────────────────────────
 ## Hull a second at one full unit of excess density. Calibrated so the drain is
 ## a clock you can read and act on rather than a cliff: at 130 m it is about
@@ -216,6 +264,17 @@ const SEED_AMBIENCE := 149
 const SEED_OFFSETS: Array[int] = [0, 17, 41, 77, 113, 131, 149]
 
 
+## The rock tint at a depth, blended across the last two metres of the band above
+## so the boundary is a hard line rather than a dissolve. A hard line is the
+## point: he has to be able to SEE where the Line is.
+static func tint_at(depth: float) -> Color:
+	return BAND_TINT[band_at(depth)]
+
+
+static func air_at(depth: float) -> Color:
+	return BAND_AIR[band_at(depth)]
+
+
 ## Which band a depth falls in. Clamped at both ends so a caller never has to.
 static func band_at(depth: float) -> int:
 	var b := 0
@@ -253,6 +312,20 @@ static func lamp_reach(mode: int, power_frac: float) -> float:
 		return base
 	var t: float = clampf(power_frac / LAMP_FADE_START, 0.0, 1.0)
 	return LAMP_MIN_REACH + (base - LAMP_MIN_REACH) * t
+
+
+## How long the player gets to climb out after cutting the core free.
+##
+## **Derived from the content, never set as a rate over it.** The route is the
+## shortest open path the simulation can actually find, the climb is that path at
+## the speed a fully laden ship makes, and the margin is what turns a measurement
+## into a chase. A flat timer would be a stroll on a straight shaft and
+## impossible after a clever winding descent, and there would be no way to know
+## which without playing it.
+static func extraction_seconds(route_cells: int, load_kg: float) -> float:
+	var speed: float = maxf(speed_for(load_kg + CORE_KG) * 0.72, 0.5)
+	var climb: float = float(maxi(route_cells, 1)) / speed
+	return clampf(climb * EXTRACT_MARGIN, EXTRACT_MIN_S, EXTRACT_MAX_S)
 
 
 ## Top speed with a load aboard. The risk dial the player holds: the last ore

@@ -172,3 +172,45 @@ func test_seed_offsets_are_unique(t: TestHarness) -> void:
 		t.ok(not seen.has(o), "seed offset %d is used once" % o)
 		seen[o] = true
 	t.eq(Tuning.SEED_OFFSETS.size(), seen.size(), "no duplicate seed offsets")
+
+
+## **Four things land on the same metre**, and this is the test that keeps them
+## there. In Coreward the rock band moved to 60 m while the heat threshold stayed
+## at 70, and the report was that the line could be felt and not found.
+func test_the_line_changes_the_rock_and_the_air_together(t: TestHarness) -> void:
+	var above := float(Tuning.LINE_DEPTH) - 1.0
+	var below := float(Tuning.LINE_DEPTH)
+
+	t.ok(Tuning.tint_at(above) != Tuning.tint_at(below),
+		"the rock does not change colour at the Line")
+	t.ok(Tuning.air_at(above) != Tuning.air_at(below),
+		"the air does not change colour at the Line")
+	t.approx(Tuning.hardness_at(below), Tuning.BAND_HP[2], 1e-6,
+		"the rock does not get harder at the Line")
+
+	# And it is the BIGGEST step in the table, because it is the one the player
+	# has to notice from a moving ship without being told.
+	var biggest := 0.0
+	var at_line := 0.0
+	for i in range(1, Tuning.BAND_TINT.size()):
+		var a: Color = Tuning.BAND_TINT[i - 1]
+		var b: Color = Tuning.BAND_TINT[i]
+		var step: float = absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b)
+		biggest = maxf(biggest, step)
+		if Tuning.BAND_DEPTHS[i] == Tuning.LINE_DEPTH:
+			at_line = step
+	t.approx(at_line, biggest, 1e-6,
+		"the Line is not the largest colour step in the band table")
+	t.gt(at_line, 0.35, "the step at the Line is big enough to see from a moving ship")
+
+
+func test_every_band_has_a_tint_and_an_air(t: TestHarness) -> void:
+	t.eq(Tuning.BAND_TINT.size(), Tuning.BAND_DEPTHS.size(), "every band has a rock tint")
+	t.eq(Tuning.BAND_AIR.size(), Tuning.BAND_DEPTHS.size(), "every band has an air colour")
+	# Each band must be distinguishable from its neighbour, or a boundary the
+	# player cannot see is not a boundary.
+	for i in range(1, Tuning.BAND_TINT.size()):
+		var a: Color = Tuning.BAND_TINT[i - 1]
+		var b: Color = Tuning.BAND_TINT[i]
+		t.gt(absf(a.r - b.r) + absf(a.g - b.g) + absf(a.b - b.b), 0.10,
+			"band %d looks the same as band %d" % [i, i - 1])

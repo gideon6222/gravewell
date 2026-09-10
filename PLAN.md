@@ -924,15 +924,15 @@ half-finished on `main`.
       CC0 ship anywhere and the one thing permanently on screen cannot be a placeholder.
       *Proves it:* a screenshot at 460x996 and the upgrade mount points exercised by the smoke
       test. *Film:* `descent` re-shot with the real hull.
-- [ ] **M4. Controls, HUD and the first sixty seconds.** D-pad, lamp mode, uplink and ordnance
+- [x] **M4. Controls, HUD and the first sixty seconds.** (0.5.0) D-pad, lamp mode, uplink and ordnance
       buttons, the three readouts where the plan puts them, the manifest, the fonts.
       *Proves it:* smoke drives the input seam. *Film:* `first-minute`, reviewed against the six
       questions in `TESTING.md` with the answers written into `NOTES.md`.
-- [ ] **M5. Cinder complete.** Five bands, the ore ladder, seams, the Line at 80 m with four
+- [x] **M5. Cinder complete.** (0.5.0) Five bands, the ore ladder, seams, the Line at 80 m with four
       things landing on the same metre, caches with diegetic cues, the recovery loop, tunnels
       persisting between descents. *Proves it:* `test_classes` for Cinder, the probe's first
       real numbers. *Film:* `line`.
-- [ ] **M6. The core and the extraction.** The core chamber, cutting it free, the world dying,
+- [x] **M6. The core and the extraction.** (0.5.0) The core chamber, cutting it free, the world dying,
       the ascent with the route bound and its test, failure that costs the planet and never the
       save. *Proves it:* the ascent bound test and smoke driving both outcomes. *Film:*
       `extraction`, `ascent`.

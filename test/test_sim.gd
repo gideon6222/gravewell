@@ -244,3 +244,156 @@ func test_the_manifest_shows_count_weight_and_value(t: TestHarness) -> void:
 	for i in range(1, rows.size()):
 		t.ok(float(rows[i - 1]["value"]) >= float(rows[i]["value"]),
 			"the manifest is sorted by what a line is worth")
+
+
+# ── the extraction ────────────────────────────────────────────────────────
+
+func _at_the_core(seed_value: int) -> Sim:
+	var sim := Sim.new(seed_value)
+	var cd := sim.world.core_depth()
+	# Cut a shaft from the surface to the chamber, so there is a real route out
+	# and the fixture is testing the extraction rather than a sealed pocket.
+	for d in range(-1, cd + 1):
+		sim.world.fill[sim.world.idx(sim.world.core_x, d)] = 0.0
+		sim.world.mat[sim.world.idx(sim.world.core_x, d)] = Ore.AIR
+	sim.world.mat[sim.world.idx(sim.world.core_x, cd)] = Ore.CORE
+	sim.world.fill[sim.world.idx(sim.world.core_x, cd)] = 1.0
+	sim.flight.pos = Vector2(float(sim.world.core_x), float(cd) - 1.2)
+	return sim
+
+
+func _cut_the_core(sim: Sim) -> void:
+	for _i in range(int(90.0 / DT)):
+		if sim.phase != Sim.Phase.DESCENT:
+			return
+		sim.hull = Tuning.HULL_MAX          ## the Line is not the subject here
+		sim.power = Tuning.POWER_MAX
+		sim.step(Vector2(0, 1), true, DT)
+
+
+## The core is a physical object and it is heavy, so the climb out is laboured
+## and something has to be dropped to make room for it.
+func test_the_core_takes_up_room_and_weighs(t: TestHarness) -> void:
+	var sim := _at_the_core(21)
+	sim.hold = {Ore.IRON: {"kg": 50.0, "value": 90.0, "count": 30}}
+	sim.load_kg = 50.0
+	_cut_the_core(sim)
+	t.eq(sim.phase, Sim.Phase.EXTRACTION, "the fixture reached the extraction")
+	t.ok(sim.carrying_core, "the core is aboard")
+	t.approx(sim.load_kg, Tuning.CORE_KG, 0.01,
+		"the hold was cleared to make room and the core is what is left in it")
+	t.lt(Tuning.speed_for(sim.load_kg), Tuning.speed_for(0.0) * 0.8,
+		"carrying the core is genuinely slower")
+
+
+## **Never let a hazard take the run.** The clock is derived from the route the
+## player actually has, so it can never be unwinnable by construction.
+func test_the_clock_is_derived_from_the_route_not_set_flat(t: TestHarness) -> void:
+	var sim := _at_the_core(21)
+	_cut_the_core(sim)
+	var cell := Vector2i(int(roundf(sim.flight.pos.x)), int(roundf(sim.flight.pos.y)))
+	var route := sim.world.route_out(cell.x, cell.y)
+	t.gt(float(route), 100.0, "the fixture's route out is a real climb")
+
+	var speed := Tuning.speed_for(sim.load_kg + 0.0) * 0.72
+	var fastest := float(route) / speed
+	t.gt(sim.extract_total, fastest,
+		"the clock is shorter than the fastest possible climb, so it is unwinnable")
+	t.lt(sim.extract_total, fastest * 3.0,
+		"the clock is so long it is a stroll rather than a chase")
+
+	# And a longer route gets a longer clock, which is what makes it derived
+	# rather than a constant wearing a formula's clothes.
+	var short_route := Tuning.extraction_seconds(40, 40.0)
+	var long_route := Tuning.extraction_seconds(400, 40.0)
+	t.gt(long_route, short_route, "a longer climb does not get more time")
+
+
+## Reaching the surface with the core is the only way a planet is finished.
+func test_climbing_out_with_the_core_finishes_the_planet(t: TestHarness) -> void:
+	var sim := _at_the_core(21)
+	_cut_the_core(sim)
+	var before := sim.cores
+	# Fly straight up the shaft that was cut.
+	for _i in range(int(Tuning.EXTRACT_MAX_S / DT)):
+		if sim.phase != Sim.Phase.EXTRACTION:
+			break
+		sim.hull = Tuning.HULL_MAX
+		sim.power = Tuning.POWER_MAX
+		sim.step(Vector2(0, -1), false, DT)
+	t.eq(sim.phase, Sim.Phase.OVER, "the extraction ended")
+	t.eq(sim.outcome, "escaped with the core", "and it ended by escaping")
+	t.eq(sim.cores, before + 1, "the core is in the drive")
+	t.ok(not sim.carrying_core, "and is no longer being carried")
+
+
+## Failing it costs the core and the planet, and never the save.
+func test_failing_the_extraction_never_takes_the_save(t: TestHarness) -> void:
+	var sim := _at_the_core(21)
+	sim.credits = 500.0
+	sim.filament = 9
+	_cut_the_core(sim)
+	var before_cores := sim.cores
+	# Sit still and let it come up.
+	for _i in range(int((Tuning.EXTRACT_MAX_S + 10.0) / DT)):
+		if sim.phase != Sim.Phase.EXTRACTION:
+			break
+		sim.hull = Tuning.HULL_MAX
+		sim.power = Tuning.POWER_MAX
+		sim.step(Vector2.ZERO, false, DT)
+	t.eq(sim.phase, Sim.Phase.OVER, "sitting still ends it")
+	t.eq(sim.outcome, "taken by the collapse", "and says why")
+	t.eq(sim.cores, before_cores, "the core is not banked")
+	t.approx(sim.credits, 500.0, 1e-4, "credits already banked are kept")
+	t.eq(sim.filament, 9, "filament already found is kept")
+	sim.redescend()
+	t.eq(sim.phase, Sim.Phase.DESCENT, "and the game carries on")
+
+
+## The thing coming up is a quantity the renderer and the clock BOTH read, so
+## what the player sees and what kills them cannot disagree.
+func test_the_rise_and_the_clock_are_one_quantity(t: TestHarness) -> void:
+	var sim := _at_the_core(21)
+	_cut_the_core(sim)
+	var start_rise := sim.rising
+	t.gt(start_rise, float(Tuning.CORE_DEPTH), "it starts below the core")
+	t.approx(sim.extract_frac(), 0.0, 0.05, "and the clock starts at zero")
+	for _i in range(int((sim.extract_total * 0.5) / DT)):
+		sim.hull = Tuning.HULL_MAX
+		sim.power = Tuning.POWER_MAX
+		sim.flight.pos = Vector2(float(sim.world.core_x), 5.0)   ## out of its way
+		sim.step(Vector2.ZERO, false, DT)
+		if sim.phase != Sim.Phase.EXTRACTION:
+			break
+	t.lt(sim.rising, start_rise, "the collapse climbs")
+	t.gt(sim.extract_frac(), 0.35, "and the clock agrees with how far it has come")
+
+
+## A collapse may cost the takings, never the run. If filling a cell would seal
+## the only way out, the fill is reverted.
+func test_a_collapse_that_would_seal_you_in_is_refused(t: TestHarness) -> void:
+	var w := World.new(33)
+	# A one-cell-wide shaft: every cell in it is the only way out.
+	for d in range(-1, 30):
+		w.fill[w.idx(0, d)] = 0.0
+		w.mat[w.idx(0, d)] = Ore.AIR
+	t.gt(float(w.route_out(0, 25)), 0.0, "the fixture has a way out to begin with")
+
+	var sealed := w.collapse(0, 10, 0, 25)
+	t.ok(not sealed, "the collapse sealed the only route to the surface")
+	t.ok(w.is_open(0, 10), "and the cell was left open")
+	t.gt(float(w.route_out(0, 25)), 0.0, "the way out survives")
+
+	# And the guard is not vacuous: a collapse that does NOT seal must succeed,
+	# or the test above passes because collapse never does anything.
+	for d in range(-1, 30):
+		w.fill[w.idx(1, d)] = 0.0
+		w.mat[w.idx(1, d)] = Ore.AIR
+	t.ok(w.collapse(0, 10, 0, 25), "a collapse beside a second route is allowed")
+	t.ok(not w.is_open(0, 10), "and it actually filled the cell")
+
+
+func test_there_is_no_route_out_of_solid_rock(t: TestHarness) -> void:
+	var w := World.new(33)
+	t.eq(w.route_out(0, 50), -1, "solid rock reports no route rather than a short one")
+	t.gt(float(w.route_out(0, -1)), -1.0, "the open sky above the pad is already out")

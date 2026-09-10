@@ -299,3 +299,57 @@ func count_of(m: int) -> int:
 		if mat[i] == m:
 			n += 1
 	return n
+
+
+## The shortest open route from a cell to the surface, in cells, or -1 if there
+## is no way out at all.
+##
+## A breadth-first search over open cells, eight-connected. It exists for one
+## reason: **never let a hazard take the run.** The extraction's clock is derived
+## from this rather than set as a flat number, and a collapse that would make the
+## surface unreachable is reverted rather than shipped.
+##
+## Coreward learned this the expensive way: re-run the pathfinder after a
+## collapse and revert if home is unreachable, and test the bound.
+func route_out(from_x: int, from_d: int) -> int:
+	if not is_open(from_x, from_d):
+		return -1
+	var seen := {}
+	var queue: Array[Vector3i] = [Vector3i(from_x, from_d, 0)]
+	seen[Vector2i(from_x, from_d)] = true
+	var head := 0
+	while head < queue.size():
+		var cur := queue[head]
+		head += 1
+		if cur.y <= 0:
+			return cur.z
+		for sy in range(-1, 2):
+			for sx in range(-1, 2):
+				if sx == 0 and sy == 0:
+					continue
+				var nx := cur.x + sx
+				var nd := cur.y + sy
+				var key := Vector2i(nx, nd)
+				if seen.has(key) or not is_open(nx, nd):
+					continue
+				seen[key] = true
+				queue.append(Vector3i(nx, nd, cur.z + 1))
+	return -1
+
+
+## Collapse a cell, refusing the collapse if it would seal the way out.
+##
+## Returns true if the cell was actually filled. The check is the whole point:
+## a hazard may cost the player the run's takings, never the run itself.
+func collapse(x: int, d: int, from_x: int, from_d: int) -> bool:
+	if not in_bounds(x, d) or not is_open(x, d):
+		return false
+	var i := idx(x, d)
+	var was_mat := mat[i]
+	mat[i] = Ore.ROCK
+	fill[i] = 1.0
+	if route_out(from_x, from_d) < 0:
+		mat[i] = was_mat
+		fill[i] = 0.0
+		return false
+	return true
