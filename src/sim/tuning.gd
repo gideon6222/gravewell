@@ -267,6 +267,9 @@ const SEED_OFFSETS: Array[int] = [0, 17, 41, 77, 113, 131, 149]
 ## The rock tint at a depth, blended across the last two metres of the band above
 ## so the boundary is a hard line rather than a dissolve. A hard line is the
 ## point: he has to be able to SEE where the Line is.
+## Kept as the Cinder defaults. The per-class tables live in `Classes`, which is
+## what a world actually reads, and these two remain so nothing that only knows
+## about depth has to know about classes as well.
 static func tint_at(depth: float) -> Color:
 	return BAND_TINT[band_at(depth)]
 

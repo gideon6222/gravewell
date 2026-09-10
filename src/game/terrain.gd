@@ -139,9 +139,10 @@ func _colour_at(p: Vector2) -> Color:
 	var col: Color = MAT_COLOUR.get(m, MAT_COLOUR[Ore.ROCK])
 	if _world.is_seam(best.x, best.y):
 		col = col.lightened(SEAM_LIGHTEN)
-	# The band tint. Half of the four things that land on the Line: the rock
-	# changes colour at exactly the metre the hull starts draining.
-	var t := Tuning.tint_at(float(best.y))
+	# The band tint, from the WORLD'S CLASS rather than from the depth alone.
+	# Half of the four things that land on the Line, and the reason a Rime shaft
+	# is blue-white where a Cinder one smoulders.
+	var t := Classes.tint_at(_world.class_id, float(best.y))
 	col = Color(col.r * t.r, col.g * t.g, col.b * t.b, col.a)
 	# Alpha is how much the material glows on its own, which the shader runs on
 	# its own gentler curve so a rich seam still reads through the dark.

@@ -113,7 +113,9 @@ func launch() -> void:
 ## filament, cores, the ladder, the record - and only the planet is new.
 func next_planet() -> void:
 	planet += 1
-	world = World.new(planet, 0)
+	# The class alternates for now. A later milestone replaces this with the
+	# chart, where choosing WHERE to go is the decision the classes exist for.
+	world = World.new(planet, planet % Classes.ALL.size())
 	flight = Flight.new(world)
 	drops.clear()
 	deepest = 0.0
@@ -248,6 +250,7 @@ func step(dir: Vector2, drilling: bool, dt: float) -> void:
 	if drilling and held:
 		_drill(target, dt)
 	_pressure(d, density, dt)
+	_settle(dt)
 	_collect()
 	if phase == Phase.EXTRACTION:
 		_extract(dt)
@@ -324,6 +327,32 @@ func _collect() -> void:
 			_stow(int(dr["mat"]), float(dr["kg"]), float(dr["value"]))
 			drops.remove_at(i)
 		i -= 1
+
+
+## Brittle ceilings, on the classes that have them.
+##
+## The world counts the cracks down and says which fell; deciding what a falling
+## rock costs belongs to the ship, so the two stay apart and the world can be
+## tested without one.
+func _settle(dt: float) -> void:
+	var fell := world.settle(dt)
+	if fell.is_empty():
+		return
+	var cell := Vector2i(int(roundf(flight.pos.x)), int(roundf(flight.pos.y)))
+	for c in fell:
+		collapsed.emit(c.x, c.y)
+		# It lands in the cell BELOW the one that cracked, which is where the
+		# ship has to be standing to be hit.
+		if cell.x == c.x and cell.y == c.y + 1:
+			hull -= Classes.BRITTLE_DAMAGE
+			hull_hit.emit(Classes.BRITTLE_DAMAGE)
+
+
+## How long before the nearest cracking ceiling comes down, or a large number if
+## nothing near is cracking. The HUD reads this: announce a zone before charging
+## for it, and by more than human reaction time.
+func crack_warning() -> float:
+	return world.nearest_crack(flight.pos)
 
 
 ## The Line. Past it the air is thick enough to be a load on the hull, and the

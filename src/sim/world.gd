@@ -47,6 +47,11 @@ var seam: PackedByteArray = PackedByteArray()
 ## directly below the pad" never becomes something the player can assume.
 var core_x: int = 0
 
+## Rime only: cells whose support has been cut away, and how long until they
+## fall. Marked when a dig widens the span below them, so the cost is paid at
+## the moment the player creates the hazard rather than by scanning the world.
+var unstable: Dictionary = {}
+
 
 func _init(seed_value: int = 1, world_class: int = 0) -> void:
 	planet_seed = seed_value
@@ -148,7 +153,7 @@ func _carve_caverns() -> void:
 	while d < Tuning.CORE_DEPTH - 12:
 		var x := -Tuning.HALF_WIDTH
 		while x <= Tuning.HALF_WIDTH:
-			if _roll(x, d, Tuning.SEED_CAVERN) < Tuning.CAVERN_CHANCE:
+			if _roll(x, d, Tuning.SEED_CAVERN) < Classes.cavern_chance(class_id):
 				var rr := _roll(x + 1, d, Tuning.SEED_CAVERN)
 				var radius: float = Tuning.CAVERN_RADIUS[0] + rr * (Tuning.CAVERN_RADIUS[1] - Tuning.CAVERN_RADIUS[0])
 				var cx: int = x + int(_roll(x + 2, d, Tuning.SEED_CAVERN) * float(b))
@@ -240,10 +245,21 @@ func cut(x: int, d: int, hp: float) -> Dictionary:
 	if not in_bounds(x, d):
 		return out
 	var i := idx(x, d)
-	if fill[i] <= 0.0:
+	# **The same threshold `is_open` uses, and it has to be the same one.**
+	# `is_open` calls a cell passable at `OPEN_FILL`, and this used to break it
+	# only at exactly 0.0, which leaves a gap: a cell can land on a fill inside
+	# that gap, become flyable, and NEVER break, never yield and never lose its
+	# ore material. Measured on Rime, whose hardness multiplier changes the
+	# arithmetic enough to land there: a scripted miner ping-ponged between two
+	# dug-out cells that still reported themselves as iron, reached 15 m in forty
+	# seconds and mined nothing at all.
+	#
+	# This is the second time two thresholds for "gone" have disagreed in this
+	# file. There is one.
+	if fill[i] <= Tuning.OPEN_FILL:
 		return out
 
-	var hardness := Tuning.hardness_at(float(d))
+	var hardness := Tuning.hardness_at(float(d)) * Classes.hardness_mult(class_id)
 	var m := int(mat[i])
 	# The core takes far longer than anything else and it is meant to: the cut
 	# is the tell that the extraction is about to start.
@@ -254,12 +270,13 @@ func cut(x: int, d: int, hp: float) -> Dictionary:
 	fill[i] -= removed
 	out["cut"] = removed * hardness      ## hit points actually spent, for the power charge
 
-	if fill[i] > 0.0:
+	if fill[i] > Tuning.OPEN_FILL:
 		return out
 
 	fill[i] = 0.0
 	out["broke"] = true
 	out["mat"] = m
+	_check_ceiling(x, d)
 	if m == Ore.CACHE:
 		out["filament"] = Tuning.CACHE_FILAMENT[Tuning.band_at(float(d))]
 		mat[i] = Ore.AIR
@@ -353,3 +370,73 @@ func collapse(x: int, d: int, from_x: int, from_d: int) -> bool:
 		fill[i] = 0.0
 		return false
 	return true
+
+
+# ── brittle ceilings ──────────────────────────────────────────────────────
+
+## **Rime's rule.** Ice cuts in half the time and the ceilings do not hold, so a
+## descent is quick and every wide cut is a decision.
+##
+## Marked at the moment the player CREATES the hazard rather than by scanning the
+## world every frame: cutting a cell widens the open span on its row, and if that
+## span reaches `BRITTLE_SPAN` the rock above the middle of it starts to go. A
+## one-cell shaft is safe forever, which keeps the careful way to dig available
+## and makes the wide cut the gamble.
+func _check_ceiling(x: int, d: int) -> void:
+	if not Classes.is_brittle(class_id):
+		return
+	var left := x
+	while is_open(left - 1, d):
+		left -= 1
+	var right := x
+	while is_open(right + 1, d):
+		right += 1
+	var span := right - left + 1
+	if span < Classes.BRITTLE_SPAN:
+		return
+	for xx in range(left, right + 1):
+		if is_open(xx, d - 1):
+			continue
+		var key := Vector2i(xx, d - 1)
+		if not unstable.has(key):
+			unstable[key] = Classes.BRITTLE_DELAY
+
+
+## Count the marked ceilings down. Returns the cells that actually fell this
+## step, so the caller can hurt whoever is standing under them.
+##
+## Pure: it takes the delta and returns what happened, and decides nothing about
+## damage, which is the ship's business.
+func settle(dt: float) -> Array[Vector2i]:
+	var fell: Array[Vector2i] = []
+	if unstable.is_empty():
+		return fell
+	for key in unstable.keys():
+		unstable[key] = float(unstable[key]) - dt
+		if float(unstable[key]) > 0.0:
+			continue
+		var c: Vector2i = key
+		fell.append(c)
+		if in_bounds(c.x, c.y) and not is_open(c.x, c.y):
+			# The ceiling comes DOWN: the cell above empties and the cell below
+			# fills, which is a rock falling rather than a cell vanishing.
+			var below := Vector2i(c.x, c.y + 1)
+			mat[idx(c.x, c.y)] = Ore.AIR
+			fill[idx(c.x, c.y)] = 0.0
+			if in_bounds(below.x, below.y):
+				mat[idx(below.x, below.y)] = Ore.ROCK
+				fill[idx(below.x, below.y)] = 1.0
+	for c in fell:
+		unstable.erase(c)
+	return fell
+
+
+## How close the nearest cracking ceiling is, and how long it has. The tell:
+## announced before it charges, and by more than human reaction time.
+func nearest_crack(from: Vector2) -> float:
+	var soonest := 1.0e9
+	for key in unstable.keys():
+		var c: Vector2i = key
+		if (Vector2(float(c.x), float(c.y)) - from).length() < 7.0:
+			soonest = minf(soonest, float(unstable[key]))
+	return soonest

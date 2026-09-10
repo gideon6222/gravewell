@@ -9,9 +9,22 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.6.0"
+const VERSION := "0.7.0"
 
 const RELEASES := [
+	{
+		"version": "0.7.0",
+		"date": "2026-09-10",
+		"title": "Rime",
+		"notes": [
+			"A second kind of world, and it is a different world rather than a different colour.",
+			"Ice cuts in half the time, so a Rime descent is quick.",
+			"And the ceilings do not hold: cut wide and the rock above you starts to go.",
+			"A one-cell shaft is safe forever. The wide cut is the gamble.",
+			"Ice carries light much further than rock, so you can see where you are going.",
+			"Cold instead of heat below the Line, and the whole world reads blue.",
+		],
+	},
 	{
 		"version": "0.6.0",
 		"date": "2026-09-10",

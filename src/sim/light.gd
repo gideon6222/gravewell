@@ -74,6 +74,11 @@ const DIAG := 1.41421356
 ## evaluated per pixel from the ship's exact position. Leave it in the grid and
 ## the pool of light steps a whole metre at a time as the ship flies.
 static func flood(world: World, ox: int, od: int) -> PackedFloat32Array:
+	# **The attenuation belongs to the WORLD, not to this file.** Ice carries
+	# light much further than rock, so a Rime tunnel is legible far past where a
+	# Cinder one goes black. That is the class changing what you can SEE, which
+	# is one of the three things a class is allowed to change.
+	var att := Classes.detour_att(world.class_id)
 	var field := PackedFloat32Array()
 	field.resize(SIDE * SIDE)
 	field.fill(0.0)
@@ -129,7 +134,7 @@ static func flood(world: World, ox: int, od: int) -> PackedFloat32Array:
 				field[i] = 0.0
 				continue
 			var detour: float = maxf(dist[i] - _octile(x, d), 0.0)
-			field[i] = exp(-DETOUR_ATT * detour)
+			field[i] = exp(-att * detour)
 	return field
 
 

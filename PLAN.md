@@ -940,7 +940,7 @@ half-finished on `main`.
       scrolling with the pinned button, the chart table, the drive frame with its seven empty
       slots visible from the first hour. *Proves it:* the sealed-row test, and the room tested
       at a size where it must scroll. *Film:* `hold`, `chart`.
-- [ ] **M8. Rime, the second class.** Brittle rock that cuts in half the time, ceilings that
+- [x] **M8. Rime, the second class.** (0.7.0) Brittle rock that cuts in half the time, ceilings that
       come down, ice that carries light. The point of this milestone is that the second planet
       proves classes differ by rule. *Proves it:* `test_classes` asserts Rime differs from
       Cinder on at least three of five channels and that its rule fires in a scripted descent.

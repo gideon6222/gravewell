@@ -379,7 +379,7 @@ func _redraw_world() -> void:
 		# The air changes colour at the same metre the rock does and the hull
 		# starts draining. Four things on one metre, from one table, so they
 		# cannot drift apart the way they did in Coreward.
-		var air := Tuning.air_at(sim.flight.depth())
+		var air := Classes.air_at(sim.world.class_id, sim.flight.depth())
 		_env.fog_light_color = _env.fog_light_color.lerp(air, 0.08)
 		_env.ambient_light_color = _env.ambient_light_color.lerp(
 			Color(air.r * 1.6 + 0.05, air.g * 1.6 + 0.06, air.b * 1.6 + 0.08), 0.08)

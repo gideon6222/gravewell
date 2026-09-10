@@ -295,11 +295,15 @@ your tunnels are still open. TAP TO DESCEND AGAIN" % sim.outcome
 		# picture cannot promise a second the rules do not give.
 		_state.text = "THE CORE IS FREE - GET OUT
 %d s" % int(ceilf(sim.extract_left))
+	elif sim.crack_warning() < Classes.BRITTLE_DELAY:
+		# Announced before it charges, and by more than human reaction time. The
+		# player hears the ice go and chooses whether to finish the seam.
+		_state.text = "THE CEILING IS GOING"
 	elif sim.power_frac() < Tuning.LAMP_FADE_START:
 		_state.text = "POWER LOW — the lamp is going"
 	elif sim.flight.depth() > float(Tuning.LINE_DEPTH) - Tuning.LINE_WARN_M \
 			and sim.flight.depth() < float(Tuning.LINE_DEPTH):
-		_state.text = "THE LINE IS BELOW YOU"
+		_state.text = "%s BELOW" % Classes.line_name(sim.world.class_id)
 	else:
 		_state.text = ""
 

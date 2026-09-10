@@ -132,3 +132,41 @@ func test_openness_reads_the_space_not_the_material(t: TestHarness) -> void:
 	t.approx(w.openness(0, -6, 3), 1.0, 1e-6, "open sky is fully open")
 	var packed := w.openness(0, 60, 3)
 	t.lt(packed, 0.6, "deep untouched rock is mostly closed")
+
+
+## **A cell that is passable must always be a cell that BROKE.**
+##
+## `is_open` calls a cell passable at `OPEN_FILL` and `cut` used to break it only
+## at exactly 0.0, which leaves a gap between the two. A cell whose fill lands
+## inside that gap is flyable, never breaks, never pays and keeps its ore
+## material forever. Measured on Rime: a scripted miner ping-ponged between two
+## dug-out cells that still reported themselves as iron, reached 15 m in forty
+## seconds and mined nothing.
+##
+## Reintroducing the bug means comparing against 0.0 instead of OPEN_FILL, and
+## what catches it is sweeping the bite size so some cut lands in the gap.
+func test_a_passable_cell_has_always_broken(t: TestHarness) -> void:
+	var checked := 0
+	for bite in [0.017, 0.033, 0.05, 0.0833, 0.1, 0.137, 0.25, 0.331]:
+		for cls in [Classes.CINDER, Classes.RIME]:
+			var w := World.new(4, cls)
+			for d in [15, 45, 95, 150, 185]:
+				for x in [-2, 0, 3]:
+					if w.is_open(x, d):
+						continue
+					var broke := false
+					for _i in range(400):
+						if w.is_open(x, d):
+							break
+						if bool(w.cut(x, d, bite)["broke"]):
+							broke = true
+					checked += 1
+					if not w.is_open(x, d):
+						continue
+					t.ok(broke,
+						"(%d,%d) on %s became passable at bite %.4f without ever breaking"
+						% [x, d, Classes.of(cls)["name"], bite])
+					t.eq(w.material_at(x, d), Ore.AIR,
+						"(%d,%d) on %s is passable and still reports material %d"
+						% [x, d, Classes.of(cls)["name"], w.material_at(x, d)])
+	t.gt(float(checked), 100.0, "the sweep did not actually cut anything")

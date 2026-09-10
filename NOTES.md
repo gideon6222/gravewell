@@ -316,3 +316,56 @@ Reviewed `build/movie/first-minute/sheet.png`, sixty seconds, one tile a second.
 **What the film proves that no screenshot could:** the flood fill reads in
 motion. The shaft bends where the player turned and the light bends with it,
 which is the whole of what he asked for, and it is only legible as a sequence.
+
+## M8: Rime, and one threshold too many (2026-09-10, 0.7.0)
+
+### A class is a rule
+
+`Classes` holds what a world IS, and `test_classes.gd` asserts that any two
+classes differ on at least **three of five** channels a player can perceive, with
+the palette counting for exactly one of them. That assertion is the whole file's
+reason to exist: Coreward had twelve planets and they were twelve tints on one
+cave.
+
+Rime changes three things and the art follows from them:
+
+| | |
+|---|---|
+| Hardness x0.5 | ice cuts in half the time, so a descent is quick |
+| Brittle ceilings | cut a span of three or more and the rock above starts to go |
+| Detour attenuation 0.24 against Cinder's 0.55 | ice carries light much further, so a Rime tunnel is legible far past where a Cinder one goes black |
+
+Measured side by side over the same forty seconds from the same seed: Cinder
+57 m and 84 credits, **Rime 89 m and 268 credits.** The world is faster and
+richer, and the ceilings are what it charges for that.
+
+### The bug that took three wrong theories
+
+**Two thresholds for "gone" that did not agree.** `is_open` called a cell
+passable at `OPEN_FILL` (1e-4) while `cut` only broke it at exactly 0.0. A cell
+landing in that gap is flyable and has never broken: it never yields, and its
+material stays whatever it was forever.
+
+Whether a cut lands in the gap depends on `hp / hardness` against the remaining
+fill, so it never happened on Cinder and happened constantly on Rime, whose
+hardness multiplier is 0.5.
+
+The symptom looked nothing like the cause. A scripted miner reached 15 m in forty
+seconds and mined nothing, ping-ponging between two cells it had already dug
+because they still reported themselves as iron. Three plausible causes were
+reasoned about first - falling ceilings trapping it, the ship inside rock, the
+bot oscillating on a rounding boundary - and all three were wrong. One print of
+the cells around the stuck ship ended it.
+
+**This is the second time this file has had two thresholds for gone.** The first
+was the OPEN_FILL/0.5 mismatch at M1. Filed to `inbox/`. The test that catches it
+sweeps eight bite sizes across two classes and five depths and asserts the
+property directly: a passable cell has always broken, and reports no material.
+
+### Open
+
+Brittle ceilings did not fire once in a forty-second scripted descent, because
+the bot digs cardinally and one cell wide, which is exactly the safe way. That is
+the intended shape - narrow is safe, wide is the gamble - but it means the rule
+is opt-in, and whether a real player triggers it is a question for the phone
+rather than for the probe.
