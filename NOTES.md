@@ -102,3 +102,64 @@ lines with their phase, the release tag.)
 ## Next
 
 See the first unticked milestone in `PLAN.md`.
+
+## M2: the contour and the propagated lamp (2026-09-10, 0.3.0)
+
+### What the light does now
+
+The stack from `techniques/coreward-propagated-lighting.md`, ported and split
+across the sim/render wall:
+
+- **The flood** is a Dijkstra over OPEN cells storing `exp(-att * (path - octile))`,
+  so open ground solves to exactly 1 and only geometry darkens anything. Runs on
+  a cell change, not per frame.
+- **The spill** carries that light one cell onto the rock faces beside it. Without
+  it the game is a lit tunnel in a black screen, because the flood only ever
+  reaches open cells and a wall is not one.
+- **The fan** is 256 rays by grid DDA, every frame, recording the FAR corner of
+  the first solid cell. The near corner puts every wall face in its own shadow,
+  which is the artefact that cost five playtest rounds in Coreward.
+- **Two lights.** `SURFACE = spill * falloff * beam` on the rock, and
+  `AIR = flood * falloff * beam * shadow` on an additive quad behind the rock's
+  front face. The shadow belongs to the air term only.
+
+### Corrections to the plan, again found by tests and pictures
+
+6. **The contour runs on the lattice of CELL CENTRES, not shared corners.**
+   Averaging four cells into a corner cannot represent a single dug cell at all:
+   one cell at 0 among solid gives every corner 0.75, above any isovalue that
+   also calls untouched rock solid. Measured: `build()` returned zero segments
+   after a cell was fully removed. Sampling cell centres is exact instead, and a
+   fully cut cell puts the surface precisely on its own boundary, so the drawn
+   opening and the passable opening are the same shape.
+7. **`ALBEDO` is what Godot's lights multiply, not the final colour.** The rock is
+   excluded from every light in the scene on purpose, so writing the solved field
+   to `ALBEDO` produced a black screen at every setting. The shader is
+   `unshaded` and owns its whole light model. Two rounds went into the falloff
+   curve before one diagnostic frame rendering the field straight to EMISSION
+   showed it was correct all along. Filed to `inbox/`.
+8. **Vertex colour is sampled per VERTEX, not per cell.** Per-cell colour laid a
+   hard grid of squares over a smooth continuous surface, so an ore vein read as
+   a row of tiles. Per vertex it interpolates across every triangle and reads as
+   mineral running through stone.
+
+### Measured
+
+| Date | What | Number | How |
+|---|---|---|---|
+| 2026-09-10 | Flood over the worst-case open window | under 60 ms for ten solves, so well under 6 ms each | `test_light.gd` bound |
+| 2026-09-10 | Rock normal map, ambientCG Rock035 | 1K download, `size_limit` set to 512: a cell is about 66 px on the phone and the tile repeats every 2.2 cells, so 1024 was thrown away | ASSETS.md rule applied as a measurement |
+| 2026-09-10 | APK with the contour, shaders and normal map | inside the size budget | `check_size.gd` |
+
+### Still open at the end of M2
+
+- **Volumetric fog is still assumed unavailable on Forward Mobile** and the air
+  density drives the built-in depth fog instead. The measurement PLAN.md asks
+  for has not been run yet, because nothing currently needs it: the four
+  Mobile-safe layers are doing the job. Run it before anyone spends time on a
+  `FogVolume`.
+- No dust motes yet. They belong with the ambience pass at M9.
+- The lamp pool still reads as a soft circle in a straight shaft, which is
+  correct (a straight shaft has no detour to attenuate) but means the flood's
+  character only shows once a descent has branches in it. Worth checking on a
+  filmed run rather than a single frame.

@@ -912,7 +912,7 @@ half-finished on `main`.
       changelog in place from this commit. *Proves it:* `test_world`, `test_fly`, `test_ship`,
       the first golden over a scripted descent, and the `src/sim` boundary test with all five
       assertions falsified by reintroducing each bug.
-- [ ] **M2. The look: rock, contour and the lamp.** Marching-squares terrain chunked into
+- [x] **M2. The look: rock, contour and the lamp.** (0.3.0) Marching-squares terrain chunked into
       `ArrayMesh`, PBR rock under a moving lamp, the flood fill, the field texture, the shadow
       fan, surface and air as two lights, air density wired to fog and lamp reach, dust motes.
       *Proves it:* `test_contour`, `test_light`, `test_air`. *Film:* `descent`.

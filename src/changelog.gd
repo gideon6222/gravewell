@@ -9,9 +9,23 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.2.0"
+const VERSION := "0.3.0"
 
 const RELEASES := [
+	{
+		"version": "0.3.0",
+		"date": "2026-09-10",
+		"title": "Light that travels down the tunnel",
+		"notes": [
+			"The rock is real rock now: an eroded surface with relief under a moving lamp.",
+			"Light spreads through the tunnels you cut instead of shining through stone.",
+			"A shaft you dug an hour ago still carries light down it.",
+			"Rock three layers deep is black, and a side tunnel you never opened is blacker.",
+			"Corners throw a shadow down the passage behind them.",
+			"Ore runs through the stone as veins rather than sitting in it as blocks.",
+			"The air thickens as you go down, and it dims the lamp as it does.",
+		],
+	},
 	{
 		"version": "0.2.0",
 		"date": "2026-09-10",

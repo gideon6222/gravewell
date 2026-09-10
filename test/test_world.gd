@@ -127,28 +127,6 @@ func test_the_core_is_reachable_and_not_always_under_the_pad(t: TestHarness) -> 
 		"the core is not in the same place on every planet, or 'straight down' is the only route")
 
 
-## The corner value the contour interpolates. Open ground must come out at
-## exactly 0 and untouched rock at exactly 1, or the surface floats away from
-## the geometry everywhere.
-func test_corner_fill_agrees_with_the_cells_around_it(t: TestHarness) -> void:
-	var w := World.new(5)
-	t.approx(w.corner_fill(0, -2), 0.0, 1e-6, "a corner in open air is empty")
-	var d := 40
-	var solid := true
-	for od in range(-1, 1):
-		for ox in range(-1, 1):
-			if w.is_open(ox, d + od):
-				solid = false
-	if solid:
-		t.approx(w.corner_fill(0, d), 1.0, 1e-6, "a corner inside untouched rock is full")
-	# Cut one of the four and the corner must move exactly a quarter of the way.
-	var w2 := World.new(5)
-	var before := w2.corner_fill(0, d)
-	w2.cut(0, d, 999.0)
-	t.approx(w2.corner_fill(0, d), before - 0.25, 1e-5,
-		"breaking one of the four cells moves the corner a quarter")
-
-
 func test_openness_reads_the_space_not_the_material(t: TestHarness) -> void:
 	var w := World.new(3)
 	t.approx(w.openness(0, -6, 3), 1.0, 1e-6, "open sky is fully open")

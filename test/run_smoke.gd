@@ -35,7 +35,8 @@ func _initialize() -> void:
 
 	_t.begin("smoke > the scene builds its world")
 	_t.ok(main.sim != null, "Sim was never created")
-	_t.ok(main._cells != null, "the terrain field is missing from the scene")
+	_t.ok(main._terrain != null, "the terrain is missing from the scene")
+	_t.ok(main._haze != null, "the air-light quad is missing from the scene")
 	_t.ok(main._ship != null, "the ship is missing from the scene")
 	_t.ok(main._lamp != null, "the lamp is missing from the scene")
 
@@ -65,21 +66,27 @@ func _drive_a_descent(main) -> void:
 
 func _check_everything_that_exists_is_drawn(main) -> void:
 	_t.begin("smoke > everything that exists is actually drawn")
-	var drawn: int = main._cells.multimesh.visible_instance_count
-	_t.gt(float(drawn), 0.0,
-		"rock exists in the model but none is drawn - visible_instance_count is not being set")
-	_t.lt(float(drawn), float(main.POOL) + 1.0, "the pool is not being overrun")
+	# A subsystem that renders nothing and a subsystem that does not exist look
+	# identical from outside, so the assertion is that the mesh the simulation
+	# implies is the mesh that got built.
+	var drawn: int = main._terrain.vertex_count
+	_t.gt(float(drawn), 0.0, "rock exists in the model but the contour built no geometry")
 
-	# Count what the model says should be visible in the same window the
-	# renderer uses, and require the two to agree exactly.
 	var cx := int(roundf(main.sim.flight.pos.x))
 	var cd := int(roundf(main.sim.flight.pos.y))
-	var live := 0
-	for d in range(cd - 21, cd + 22):
-		for x in range(cx - 14, cx + 15):
-			if not main.sim.world.is_open(x, d) and main.sim.world.material_at(x, d) != Ore.AIR:
-				live += 1
-	_t.eq(drawn, mini(live, main.POOL), "drawn cells do not match the model")
+	var expected := Contour.build(main.sim.world,
+		cx - main.HALF_W, cx + main.HALF_W, cd - main.HALF_D, cd + main.HALF_D)
+	_t.gt(float(expected.size()), 0.0, "the model itself says there is a surface here")
+	# Every contour segment becomes two triangles of wall, and the faces add
+	# more, so the mesh must be at least the wall geometry the contour implies.
+	_t.gt(float(drawn), float(expected.size()) * 2.0,
+		"the mesh is smaller than the contour the simulation solved")
+
+	_t.begin("smoke > the light field is solved and uploaded")
+	_t.ok(main._field.texture != null, "the light field texture was never created")
+	_t.eq(main._field.texture.get_width(), Light.SIDE, "the field is the size the solver produces")
+	_t.eq(main._field.fan_texture.get_width(), Light.RAYS, "the shadow fan is the width the solver produces")
+	_t.eq(main._field.origin, Vector2i(cx, cd), "the field is solved around the ship, not somewhere else")
 
 	_t.begin("smoke > the HUD reflects the run")
 	_t.ok(main._hud.text.contains("POWER"), "the HUD is not being written")

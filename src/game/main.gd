@@ -16,26 +16,32 @@ extends Node3D
 ## and one cell is one unit. Every conversion in the game goes through here.
 const DEPTH_SIGN := -1.0
 
-## Enough for the visible window plus a wide margin. The frame holds about 8 x 16
-## cells; this is 30 x 44, so a camera pull-back from a lamp upgrade cannot
-## silently start culling.
-const POOL := 1320
+## The window of rock rebuilt around the ship, in cells. Wide enough that a
+## camera pull-back from a lamp upgrade cannot reach the edge of it.
+const HALF_W := 15
+const HALF_D := 24
 
 const CAM_FOV := 46.0        ## vertical degrees. Portrait's horizontal cone is
                              ## about 22 degrees at this aspect
 const CAM_DIST := 18.0       ## about 7 cells across and 15 down
 const CAM_RATE := 6.0        ## exponential follow
 
-## How far in front of the rock plane the lamp sits. Enough to rake the visible
-## faces, close enough that the pool still reads as coming from the ship.
-const LAMP_Z := 2.2
+## The haze quad sits just behind the rock's front face, so the rock occludes it
+## and the glow shows only through the openings the player has cut.
+const HAZE_Z := 0.42
 
 var sim: Sim
 
 var _cam: Camera3D
-var _cells: MultiMeshInstance3D
+var _terrain: Terrain
+var _haze: MeshInstance3D
 var _ship: MeshInstance3D
-var _lamp: SpotLight3D
+var _lamp: OmniLight3D
+var _field := LightField.new()
+var _rock_mat: ShaderMaterial
+var _haze_mat: ShaderMaterial
+var _env: Environment
+var _last_cell := Vector2i(99999, 99999)
 var _ui: Control
 var _hud: Label
 var _readout: Label
@@ -48,21 +54,6 @@ var _pad_touch := -1
 var _drilling := false
 var _booted := false
 var _frozen := false
-
-## The materials the cell pool tints between. Colour is per-instance so one
-## MultiMesh covers every material, which keeps the whole terrain at one draw
-## call. M2 moves this into the contour shader.
-const MAT_COLOUR := {
-	Ore.ROCK: Color(0.26, 0.24, 0.23),
-	Ore.IRON: Color(0.42, 0.33, 0.27),
-	Ore.COBALT: Color(0.25, 0.35, 0.48),
-	Ore.ARGENT: Color(0.62, 0.66, 0.70),
-	Ore.PYRE: Color(0.72, 0.36, 0.18),
-	Ore.VOIDGLASS: Color(0.45, 0.28, 0.62),
-	Ore.CACHE: Color(0.85, 0.74, 0.35),
-	Ore.CORE: Color(0.95, 0.55, 0.25),
-}
-
 
 func _ready() -> void:
 	_ensure_booted()
@@ -86,7 +77,7 @@ func _ensure_booted() -> void:
 	_build_world()
 	_build_ui()
 	_sync_camera(1.0)
-	_redraw_cells()
+	_redraw_world()
 
 
 # ── the scene ─────────────────────────────────────────────────────────────
@@ -107,6 +98,7 @@ func _build_world() -> void:
 	e.fog_sky_affect = 0.2
 	e.tonemap_mode = Environment.TONE_MAPPER_ACES
 	env.environment = e
+	_env = e
 	add_child(env)
 
 	_cam = Camera3D.new()
@@ -115,44 +107,69 @@ func _build_world() -> void:
 	_cam.far = 120.0
 	add_child(_cam)
 
-	var mm := MultiMesh.new()
-	mm.transform_format = MultiMesh.TRANSFORM_3D
-	# use_colors MUST be set before instance_count or every instance is
-	# silently untinted.
-	mm.use_colors = true
-	mm.mesh = BoxMesh.new()
-	mm.instance_count = POOL
-	mm.visible_instance_count = 0
+	_rock_mat = ShaderMaterial.new()
+	_rock_mat.shader = load("res://src/game/rock.gdshader")
+	_rock_mat.set_shader_parameter("field", _field.texture)
+	_rock_mat.set_shader_parameter("field_side", float(Light.SIDE))
+	_rock_mat.set_shader_parameter("field_radius", float(Light.R))
+	# The single highest-value import in the game. "Cartoonie" from him means
+	# under-lit and under-textured, never the model style, and a normal map on
+	# the largest surface plus a real light with falloff does more than any
+	# amount of geometry. The NORMAL only, never the colour map: that is what
+	# lets a photographed texture into a game whose palette decides colour.
+	var rock_n := load("res://assets/textures/Rock035/Rock035_1K-JPG_NormalGL.jpg")
+	if rock_n != null:
+		_rock_mat.set_shader_parameter("rock_normal", rock_n)
+		_rock_mat.set_shader_parameter("has_normal", true)
 
-	_cells = MultiMeshInstance3D.new()
-	_cells.multimesh = mm
-	var cell_mat := StandardMaterial3D.new()
-	cell_mat.vertex_color_use_as_albedo = true
-	cell_mat.roughness = 0.92
-	cell_mat.metallic = 0.0
-	_cells.material_override = cell_mat
-	add_child(_cells)
+	_terrain = Terrain.new()
+	_terrain.setup(sim.world, _rock_mat)
+	add_child(_terrain)
+
+	# Light in the AIR. A dug cell contains no geometry, so without this the
+	# tunnel itself stays dead however well its walls are lit: a black slot with
+	# bright edges. It sits behind the rock's front face, so the rock occludes it.
+	_haze_mat = ShaderMaterial.new()
+	_haze_mat.shader = load("res://src/game/haze.gdshader")
+	_haze_mat.set_shader_parameter("field", _field.texture)
+	_haze_mat.set_shader_parameter("fan", _field.fan_texture)
+	_haze_mat.set_shader_parameter("field_side", float(Light.SIDE))
+	_haze_mat.set_shader_parameter("field_radius", float(Light.R))
+
+	var quad := QuadMesh.new()
+	quad.size = Vector2(float(HALF_W) * 2.4, float(HALF_D) * 2.4)
+	_haze = MeshInstance3D.new()
+	_haze.mesh = quad
+	_haze.material_override = _haze_mat
+	# Never casts or receives: it is a light, not a surface.
+	_haze.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	add_child(_haze)
 
 	_ship = MeshInstance3D.new()
 	var hull := BoxMesh.new()
 	hull.size = Vector3(Tuning.SHIP_HALF * 2.0, Tuning.SHIP_HALF * 2.0, Tuning.SHIP_HALF * 2.0)
 	_ship.mesh = hull
 	var ship_mat := StandardMaterial3D.new()
-	ship_mat.albedo_color = Color(0.58, 0.60, 0.64)
+	ship_mat.albedo_color = Color(0.42, 0.44, 0.48)
 	ship_mat.roughness = 0.55
-	ship_mat.metallic = 0.7
+	ship_mat.metallic = 0.45
 	_ship.material_override = ship_mat
+	_ship.layers = 2
 	add_child(_ship)
 
 	# The lamp is the game's light. The ship gets its own key light on a
 	# separate layer at M2, because the world's light is an upgrade and the hull
 	# must not brighten when the player buys one.
-	_lamp = SpotLight3D.new()
-	_lamp.light_energy = 3.2
+	_lamp = OmniLight3D.new()
+	_lamp.light_energy = 1.3
 	_lamp.light_color = Color(1.0, 0.94, 0.84)
-	_lamp.spot_range = Tuning.LAMP_REACH[Tuning.Lamp.FLOOD]
-	_lamp.spot_angle = 55.0
+	_lamp.omni_range = 4.0
 	_lamp.shadow_enabled = false
+	# The rock is lit by the solved field, not by this lamp, so the lamp's job is
+	# now only to light the SHIP. `light_cull_mask` and `layers` really do
+	# exclude a light from an object in Godot: one flag, not a second pass, and
+	# it is why buying a lamp upgrade does not make the hull glow.
+	_lamp.light_cull_mask = 2
 	add_child(_lamp)
 
 
@@ -298,7 +315,7 @@ func _process(delta: float) -> void:
 func _tick(dt: float) -> void:
 	sim.step(_pad_vec, _drilling, dt)
 	_sync_camera(dt)
-	_redraw_cells()
+	_redraw_world()
 	_draw_hud()
 
 
@@ -313,58 +330,60 @@ func _sync_camera(dt: float) -> void:
 
 	var sp := Vector3(sim.flight.pos.x, DEPTH_SIGN * sim.flight.pos.y, 0.0)
 	_ship.position = sp
-	# The reach is measured in the plane, and the lamp is LAMP_Z out of it, so
-	# the range has to cover the hypotenuse or the pool is clipped short.
-	_lamp.spot_range = sqrt(sim.lamp_reach() * sim.lamp_reach() + LAMP_Z * LAMP_Z)
-	_lamp.spot_angle = clampf(rad_to_deg(Tuning.LAMP_CONE[sim.lamp_mode]) * 0.5, 5.0, 88.0)
-	# The lamp sits in FRONT of the rock plane and rakes across it.
+	# **The rock is not lit by this light.** It is lit by the solved field in
+	# `rock.gdshader`, which is the whole technique: a Godot light does not know
+	# the rock is there and would light an unopened side tunnel exactly as
+	# brightly as the shaft the player flew down.
 	#
-	# The obvious placement - at the ship, pointing along the heading - lights
-	# the backs of the cells and leaves the whole screen black, because this is a
-	# 2.5D scene: every cell is a box centred on z = 0 and the only faces the
-	# camera can see are the ones at z = +0.5. A light in the plane with them
-	# reaches none of those faces. The first screenshot of this game was an
-	# entirely black frame with a working HUD on top of it.
-	#
-	# So the lamp is pulled toward the camera and aimed back at the plane, offset
-	# along the heading so the pool of light still leads the ship. M2 replaces
-	# this with the propagated light field, where the flood decides what is lit
-	# and this positioning stops mattering.
-	var np := sim.flight.nose_point()
-	var lamp_at := Vector3(sp.x, sp.y, LAMP_Z)
-	var aim := Vector3(np.x, DEPTH_SIGN * np.y, 0.0)
-	_lamp.transform = Transform3D(Basis(), lamp_at).looking_at(aim, Vector3.UP)
+	# So this is the SHIP's own key light and nothing else's, confined to layer 2
+	# by `light_cull_mask`. Coreward needed a second pass for this because
+	# three.js cannot exclude a light from an object; in Godot it is one flag.
+	# It matters because the world's light is an upgrade, and the hull must not
+	# get brighter when the player buys one.
+	_lamp.position = sp + Vector3(0.0, 0.0, 1.6)
+	_lamp.omni_range = 4.0
+	_lamp.light_energy = 1.3
 
 
-## Draw every cell in the visible window. M2 replaces this whole function with
-## the marching-squares contour, at which point the box field goes away.
-func _redraw_cells() -> void:
-	var mm := _cells.multimesh
-	var cx := int(roundf(sim.flight.pos.x))
-	var cd := int(roundf(sim.flight.pos.y))
-	var n := 0
-	for d in range(cd - 21, cd + 22):
-		for x in range(cx - 14, cx + 15):
-			if n >= POOL:
-				break
-			if sim.world.is_open(x, d):
-				continue
-			var m := sim.world.material_at(x, d)
-			if m == Ore.AIR:
-				continue
-			var fill := sim.world.fill_at(x, d)
-			var t := Transform3D(Basis().scaled(Vector3(1.0, 1.0, 1.0)), Vector3(float(x), DEPTH_SIGN * float(d), 0.0))
-			mm.set_instance_transform(n, t)
-			var col: Color = MAT_COLOUR.get(m, MAT_COLOUR[Ore.ROCK])
-			if sim.world.is_seam(x, d):
-				col = col.lightened(0.22)
-			# A part-cut cell reads as darker and smaller, so damage is visible
-			# before the cell breaks. M2 makes this the contour instead.
-			mm.set_instance_color(n, col.darkened((1.0 - fill) * 0.45))
-			n += 1
-	# visible_instance_count IS the flush. Forgetting it fails completely
-	# silently: the instances exist and nothing is drawn.
-	mm.visible_instance_count = n
+## Rebuild the rock and re-solve the light, but only when something changed.
+##
+## The flood is a property of the GEOMETRY, so it is re-solved when the ship
+## enters a new cell or the rock changes shape, not per frame. The fan is the
+## opposite: it answers "what is in shadow from here", which moves continuously,
+## so it runs every frame.
+func _redraw_world() -> void:
+	var cell := Vector2i(int(roundf(sim.flight.pos.x)), int(roundf(sim.flight.pos.y)))
+	if cell != _last_cell:
+		_last_cell = cell
+		_terrain.touch()
+		_field.touch()
+	_terrain.refresh(cell, HALF_W, HALF_D)
+	_field.refresh(sim.world, cell)
+
+	var reach := sim.lamp_reach()
+	_field.refresh_fan(sim.world, sim.flight.pos, reach * 1.8)
+
+	var density := Tuning.density_at(sim.flight.depth())
+	var origin := _field.origin_world()
+	var h := sim.flight.heading
+	var cone: float = cos(Tuning.LAMP_CONE[sim.lamp_mode] * 0.5)
+
+	for m in [_rock_mat, _haze_mat]:
+		m.set_shader_parameter("field_origin", origin)
+		m.set_shader_parameter("lamp_pos", sim.flight.pos)
+		m.set_shader_parameter("lamp_dir", h)
+		m.set_shader_parameter("lamp_reach", reach)
+		m.set_shader_parameter("lamp_cos", cone)
+		m.set_shader_parameter("density", density)
+	_haze_mat.set_shader_parameter("fan", _field.fan_texture)
+
+	_haze.position = Vector3(sim.flight.pos.x, DEPTH_SIGN * sim.flight.pos.y, HAZE_Z)
+
+	# The air is one number, and it drives the fog as well as the lamp, the drag
+	# and the hull load. Volumetric fog is Forward+ only, so this is the built-in
+	# depth fog doing the work, thickened by the same quantity.
+	if _env != null:
+		_env.fog_density = clampf(0.010 + density * 0.020, 0.0, 0.35)
 
 
 func _draw_hud() -> void:

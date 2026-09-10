@@ -18,10 +18,12 @@ extends RefCounted
 ##   3. what the light flood calls passable
 ##
 ## One number, so the picture, the damage and the light can never disagree.
-## PLAN.md stores this per CORNER; it is stored per CELL here and averaged to
-## corners at contour time, because collision is on the cell grid and a
-## per-corner store would let a dig bleed into three neighbouring cells that
-## collision still calls solid. Recorded in NOTES.md.
+## PLAN.md stores this per CORNER; it is stored per CELL here, and the contour
+## runs on the lattice of cell CENTRES sampling it directly. A per-corner store
+## would let one dig bleed into three neighbouring cells that collision still
+## calls solid, and averaging cells into shared corners cannot represent a single
+## dug cell at all (one cell at 0 among solid gives every corner 0.75). Recorded
+## in NOTES.md.
 ##
 ## ## Seed discipline
 ##
@@ -275,13 +277,6 @@ func cut(x: int, d: int, hp: float) -> Dictionary:
 
 
 # ── reading the shape, for the light flood and the contour ────────────────
-
-## The corner value the contour interpolates: the mean fill of the four cells
-## meeting at that corner. Out of bounds counts as solid at the sides so the
-## world's edge is a wall rather than a cliff the surface falls off.
-func corner_fill(x: int, d: int) -> float:
-	return 0.25 * (fill_at(x - 1, d - 1) + fill_at(x, d - 1) + fill_at(x - 1, d) + fill_at(x, d))
-
 
 ## How open the space immediately around a point is, in [0, 1]. The light flood
 ## computes this already; the audio reverb reads the same number, so a tight
