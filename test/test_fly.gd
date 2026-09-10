@@ -1,0 +1,213 @@
+extends RefCounted
+
+## Flight, collision, and the three faults that made Coreward "very bouncy".
+
+const DT := 1.0 / 60.0
+
+
+func _open_world() -> World:
+	# A world with a shaft already cut, so flight can be tested without the
+	# drill in the way. The fixture asserts its own precondition, because a
+	# safety test aimed at a case that cannot trigger is worse than no test.
+	var w := World.new(77)
+	for d in range(-Tuning.SURFACE_ROWS, 60):
+		for x in range(-6, 7):
+			if w.in_bounds(x, d):
+				w.fill[w.idx(x, d)] = 0.0
+				w.mat[w.idx(x, d)] = Ore.AIR
+	assert(w.is_open(0, 30), "the fixture must actually be open")
+	return w
+
+
+func test_reaching_top_speed_takes_about_a_fifth_of_a_second(t: TestHarness) -> void:
+	var f := Flight.new(_open_world())
+	var top := Tuning.speed_for(0.0)
+	var elapsed := 0.0
+	for _i in range(120):
+		f.step(Vector2(0, 1), 0.0, 0.0, DT)
+		elapsed += DT
+		if f.vel.y >= top * 0.95:
+			break
+	t.lt(elapsed, 0.25, "95% of top speed inside a quarter second")
+	t.gt(elapsed, 0.08, "and not instantly, or there is no mass")
+
+
+func test_it_coasts_under_a_cell_and_does_not_stop_dead(t: TestHarness) -> void:
+	var f := Flight.new(_open_world())
+	for _i in range(60):
+		f.step(Vector2(0, 1), 0.0, 0.0, DT)
+	var at_release := f.pos.y
+	var moving_frames := 0
+	for _i in range(180):
+		f.step(Vector2.ZERO, 0.0, 0.0, DT)
+		if f.vel.length() > 0.05:
+			moving_frames += 1
+	var coast := f.pos.y - at_release
+	t.gt(coast, 0.25, "it keeps moving after the thumb comes off")
+	t.lt(coast, Tuning.CELL, "and stops inside one cell")
+	t.gt(float(moving_frames), 5.0, "the stop takes several frames, it does not snap")
+
+
+## The bug that got reported as "very bouncy". A pull that is ADDED to an
+## existing velocity is an undamped spring: it overshoots and rings. Verified
+## by driving the ship off the lane and counting sign changes in the lateral
+## velocity, which is what ringing actually is.
+func test_the_lane_pull_settles_instead_of_ringing(t: TestHarness) -> void:
+	var f := Flight.new(_open_world())
+	f.pos = Vector2(0.42, 20.0)
+	var signs := 0
+	var last := 0.0
+	for _i in range(240):
+		f.step(Vector2(0, 1), 0.0, 0.0, DT)
+		if last != 0.0 and signf(f.vel.x) != signf(last) and absf(f.vel.x) > 0.02:
+			signs += 1
+		last = f.vel.x
+	t.lt(float(signs), 2.0, "the lateral velocity does not change sign repeatedly")
+	t.lt(absf(f.pos.x - roundf(f.pos.x)), 0.06, "and it ends up on the lane")
+
+
+## "Don't align until you change direction." Coreward's pull ran while
+## COASTING, where the nearest lane is as often behind the ship as ahead, so
+## releasing near a boundary dragged it backwards against its own momentum.
+func test_nothing_is_corrected_while_coasting(t: TestHarness) -> void:
+	var f := Flight.new(_open_world())
+	f.pos = Vector2(0.45, 20.0)
+	f.vel = Vector2(2.0, 0.0)
+	var x0 := f.pos.x
+	for _i in range(30):
+		f.step(Vector2.ZERO, 0.0, 0.0, DT)
+	t.gt(f.pos.x, x0, "a coasting ship keeps going the way it was going")
+	t.ok(f.vel.x >= 0.0, "and is never dragged backwards by an alignment pull")
+
+
+func test_a_diagonal_is_left_alone(t: TestHarness) -> void:
+	var f := Flight.new(_open_world())
+	f.pos = Vector2(0.5, 20.0)
+	for _i in range(30):
+		f.step(Vector2(1, 1), 0.0, 0.0, DT)
+	t.gt(f.pos.x, 0.6, "a held diagonal actually goes sideways")
+	t.gt(f.pos.y, 20.1, "and downward at the same time")
+
+
+## Corrections go through the collision path as a velocity, never as a position
+## write. A position write is invisible to collision, which in Coreward drove
+## the ship into the rock it was cutting.
+func test_the_ship_never_ends_up_inside_rock(t: TestHarness) -> void:
+	var w := World.new(101)          ## untouched: solid everywhere below the surface
+	var f := Flight.new(w)
+	var dirs := [Vector2(0, 1), Vector2(1, 0), Vector2(1, 1), Vector2(-1, 1), Vector2(0, -1)]
+	for i in range(600):
+		f.step(dirs[i % dirs.size()], 0.0, 0.0, DT)
+		t.ok(not f._blocked(f.pos), "frame %d: the hull is not inside rock" % i)
+		if i > 20:
+			break                     ## one failure is enough; do not print six hundred
+
+
+func test_it_slides_along_a_wall_instead_of_stopping_dead(t: TestHarness) -> void:
+	var w := _open_world()
+	# Wall off the right-hand side of the shaft.
+	for d in range(-Tuning.SURFACE_ROWS, 60):
+		w.fill[w.idx(3, d)] = 1.0
+		w.mat[w.idx(3, d)] = Ore.ROCK
+	var f := Flight.new(w)
+	f.pos = Vector2(2.0, 10.0)
+	for _i in range(60):
+		f.step(Vector2(1, 1), 0.0, 0.0, DT)
+	t.gt(f.pos.y, 10.5, "pressed into a wall diagonally, it still descends")
+	t.lt(f.pos.x, 3.0, "and does not pass through the wall")
+
+
+func test_a_loaded_ship_is_slower_and_takes_longer_to_stop(t: TestHarness) -> void:
+	var empty := Flight.new(_open_world())
+	var full := Flight.new(_open_world())
+	for _i in range(120):
+		empty.step(Vector2(0, 1), 0.0, 0.0, DT)
+		full.step(Vector2(0, 1), Tuning.HOLD_KG, 0.0, DT)
+	t.lt(full.vel.y, empty.vel.y * 0.85, "a full hold is meaningfully slower")
+	t.gt(full.vel.y, 0.5, "but still flies")
+
+
+func test_dense_air_drags(t: TestHarness) -> void:
+	var thin := Flight.new(_open_world())
+	var thick := Flight.new(_open_world())
+	for _i in range(120):
+		thin.step(Vector2(0, 1), 0.0, 0.05, DT)
+		thick.step(Vector2(0, 1), 0.0, 3.0, DT)
+	t.lt(thick.vel.y, thin.vel.y, "the deep is heavy to fly in")
+
+
+## "The ship should turn to face the direction it is digging in."
+func test_the_nose_points_where_it_is_going(t: TestHarness) -> void:
+	# Untouched rock, so there is always something to bite in every direction.
+	var f := Flight.new(World.new(101))
+	f.pos = Vector2(0.0, 20.0)
+	for _i in range(10):
+		f.step(Vector2(1, 0), 0.0, 0.0, DT)
+	t.gt(f.heading.x, 0.9, "heading follows a held right")
+	var c := f.drill_target(Vector2(1, 0))
+	t.gt(float(c.x), f.pos.x, "and the drill bites to the right of the hull")
+	t.eq(c.y, int(roundf(f.pos.y)), "and on the same row, not diagonally")
+	f.heading = Vector2(0, 1)
+	var down := f.drill_target(Vector2(0, 1))
+	t.gt(float(down.y), f.pos.y, "and the drill bites below the hull when held down")
+
+
+## The bug the scripted miners found: a diagonal nose points at the corner cell,
+## which the hull can never fit through because the two orthogonal neighbours
+## are still there. Measured before the fix: a miner held down-right and stayed
+## at 1.12 m for six hundred frames, cutting and never moving.
+##
+## Reintroducing the bug means pointing the drill at the geometric nose cell
+## instead of at what is blocking, so this asserts the property that made the
+## difference: **the cell bitten on a diagonal is orthogonally adjacent**, which
+## is the only kind the hull can move into.
+func test_a_diagonal_bites_something_the_hull_can_move_into(t: TestHarness) -> void:
+	var w := World.new(101)
+	var f := Flight.new(w)
+	f.pos = Vector2(0.0, 20.0)
+	var c := f.drill_target(Vector2(1, 1).normalized())
+	t.ok(not Flight.no_target(c), "a diagonal hold has something to cut")
+	var dx: int = absi(c.x - int(roundf(f.pos.x)))
+	var dd: int = absi(c.y - int(roundf(f.pos.y)))
+	t.eq(dx + dd, 1, "the bitten cell is orthogonally adjacent, never the corner")
+
+
+## And the whole point of it: a diagonal hold makes progress **when there is
+## nowhere to skate to**.
+##
+## Started at the surface it does not, and that is correct rather than a bug:
+## the rows above depth 0 are open all the way across, so a held down-right
+## sends the ship sliding sideways through open air while the drill nibbles a
+## different cell every few frames and finishes none of them. You cannot dig
+## while sprinting. The fixture therefore starts the ship inside rock, which is
+## where the claim actually applies, and asserts that precondition.
+func test_a_diagonal_hold_digs_when_it_cannot_skate(t: TestHarness) -> void:
+	var sim := Sim.new(1234)
+	# A one-cell pocket deep in solid rock: no free lateral run anywhere.
+	var d0 := 40
+	sim.world.fill[sim.world.idx(0, d0)] = 0.0
+	sim.world.mat[sim.world.idx(0, d0)] = Ore.AIR
+	sim.flight.pos = Vector2(0.0, float(d0))
+	sim.flight.vel = Vector2.ZERO
+	t.ok(not sim.world.is_open(1, d0), "the fixture has rock to the right, or nothing is being tested")
+	t.ok(not sim.world.is_open(0, d0 + 1), "the fixture has rock below")
+
+	var start := sim.flight.pos
+	for _i in range(60 * 20):
+		if sim.phase == Sim.Phase.OVER:
+			break
+		sim.step(Vector2(1, 1).normalized(), true, DT)
+	t.gt(sim.flight.pos.y, start.y + 2.0, "twenty seconds of down-right gets somewhere down")
+	t.gt(sim.flight.pos.x, start.x + 1.0, "and somewhere right")
+
+
+func test_the_drill_never_cuts_backwards(t: TestHarness) -> void:
+	var w := World.new(101)
+	var f := Flight.new(w)
+	f.pos = Vector2(0.0, 30.0)
+	for dir in [Vector2(0, 1), Vector2(0, -1), Vector2(1, 0), Vector2(-1, 0)]:
+		var c := f.drill_target(dir)
+		if Flight.no_target(c):
+			continue
+		var away := Vector2(float(c.x), float(c.y)) - f.pos
+		t.gt(away.dot(dir), 0.0, "holding %s never bites a cell behind the ship" % str(dir))

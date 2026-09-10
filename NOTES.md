@@ -48,6 +48,46 @@ Decided during the build:
 | Date | What | Number | How |
 |---|---|---|---|
 | 2026-09-10 | Fresh copy of the template | tests and smoke green | `scripts\check.ps1` |
+| 2026-09-10 | Dig rate, a working descent | **1.26 m/s**, mean of six planets | `run_probe.gd` |
+| 2026-09-10 | A full 200 m descent, pure digging | **159 s**, so four to eight minutes with detours and uplinks | derived from the above |
+| 2026-09-10 | Power budget, cautious descent | drill 34%, thrust 29%, lamp 19%, uplinks 15%, carrying 3% | `run_probe.gd` |
+| 2026-09-10 | Filament in the ground, per planet | **17.5 total, only 4.5 of it above the Line**, from 7 to 13 caches | `run_probe.gd` |
+| 2026-09-10 | Impact into a face while drilling, before the fix | 6.75 m/s and 17 hull a block | instrumented run |
+| 2026-09-10 | Policy spread, 240 s, six planets | passive 0 cr / 0 m; diver 0 cr / 151 m (hull); cautious 230 cr / 62 m; greedy 426 cr / 101 m (always out of power); human 256 cr / 62 m | `run_probe.gd` |
+
+**What the policy spread says.** Every policy fails for a different reason, which is the
+signal the probe exists to give. Doing nothing banks nothing. Diving banks nothing and dies
+to the Line at about 151 m, so depth on its own is worth precisely zero. Greed earns 1.9x
+what caution earns and ends its descent every single time. That is the risk dial working at
+M1 with no upgrades in the game yet; whether the reckless option *never actually works* is a
+claim that can only be tested once the ladder exists, and it belongs to M7.
+
+**CORE_DEPTH = 200 is now measured rather than provisional** (PLAN.md open decision 7 is
+closed): 159 s of pure digging lands a real descent inside the plan's five-to-ten-minute
+target.
+
+## Corrections to PLAN.md made during the build
+
+1. **`fill` is stored per CELL, not per corner.** The plan says corners. Collision is on the
+   cell grid, and a per-corner store lets one dig bleed into three neighbouring cells that
+   collision still calls solid. Corners are averaged from cells at contour time instead, which
+   is standard marching squares and keeps one number doing all three jobs.
+2. **Passability and the contour isovalue are two constants, not one.** `OPEN_FILL` (fully
+   cut) decides what the ship can fly through; `CONTOUR_ISO` decides what the surface looks
+   like. Sharing one number at 0.5 meant a half-cut cell was flyable, so the ship passed
+   through cells it never finished and **nothing in the game ever broke or paid**: a scripted
+   miner reached 86 m and mined zero kilograms. The failure was completely silent.
+3. **The drill bites what is blocking the ship, not the cell under its nose.** On a diagonal
+   those differ, and the nose version points at the corner cell, which the hull can never fit
+   through. Measured before the fix: a miner held down-right and sat at 1.12 m for six hundred
+   frames, cutting and never moving.
+4. **Drilling never damages the hull.** Every cut block was arriving as a 6.75 m/s crash worth
+   17 hull, so four blocks of ordinary digging ended a descent. The drill absorbs the face it
+   is cutting; hitting rock you were *not* cutting still hurts.
+5. **A diagonal hold does not dig in open ground, and that is correct.** With a free lateral
+   run the ship slides and the drill nibbles a different cell every few frames, finishing
+   none. You cannot dig while sprinting. The scripted miners are cardinal-only for the same
+   reason a thumb on a d-pad is.
 
 ## Playtests (desk and phone)
 

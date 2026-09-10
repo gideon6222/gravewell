@@ -906,7 +906,7 @@ half-finished on `main`.
 
 ### Phase 1: first playable
 
-- [ ] **M1. The simulation, headless.** Grid with float corner fills, seeded generation with
+- [x] **M1. The simulation, headless.** (0.2.0) Grid with float corner fills, seeded generation with
       the offset table, flight with velocity and collision, drilling with kept partial damage,
       ore with weight, power/hull/load, the uplink, recovery. Version, build stamp and
       changelog in place from this commit. *Proves it:* `test_world`, `test_fly`, `test_ship`,

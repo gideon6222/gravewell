@@ -41,10 +41,16 @@ func _initialize() -> void:
 	root.add_child(_main)
 	_main.freeze()
 
-	var mem := {}
+	# Play it, do not watch it: drive the real pad through the same seam a thumb
+	# uses, so the drawing paths that only fire while digging actually run.
+	var p := Policies.new(9)
 	var step := 1.0 / 60.0
-	for i in int(round(_seconds / step)):
-		Policies.steer(Policies.GREEDY, _main.sim, mem)
+	for _i in int(round(_seconds / step)):
+		var act := p.act(Policies.GREEDY, _main.sim, step)
+		if bool(act["uplink"]):
+			_main.sim.uplink()
+			continue
+		_main.press_pad(act["dir"])
 		_main.advance(step, step)
 
 

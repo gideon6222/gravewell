@@ -71,10 +71,20 @@ func test_the_thresholds_the_game_uses_can_all_fire(t: TestHarness) -> void:
 			if SimUtil.hash2(c, 91) < threshold:
 				hit += 1
 		return hit
-	t.gt(fires.call(Tuning.OBSTACLE_CHANCE), 60, "obstacles can never spawn")
-	t.gt(fires.call(Tuning.PICKUP_CHANCE), 50, "pickups can never spawn")
-	# and the inverse: a threshold must not fire every single time either
-	t.lt(fires.call(Tuning.PICKUP_CHANCE), 200, "pickups spawn in literally every chunk")
+	t.gt(fires.call(Tuning.SEAM_CHANCE), 15, "seams can never appear")
+	t.lt(fires.call(Tuning.SEAM_CHANCE), 90, "seams are not on most of the wall, which would make them meaningless")
+	t.gt(fires.call(Tuning.CACHE_BLOCK_CHANCE), 10, "caches can never be placed")
+	t.gt(fires.call(Tuning.CAVERN_CHANCE), 12, "caverns can never be carved")
+	# The rarest thing in the game still has to be able to happen at all. A
+	# condition that can never be true fails as absence, which is invisible.
+	var rarest := 1.0
+	for o in Ore.ORES:
+		rarest = minf(rarest, float(o["chance"]))
+	var hit := 0
+	for c in 20000:
+		if SimUtil.hash2(c, 91) < rarest:
+			hit += 1
+	t.gt(float(hit), 60.0, "the rarest ore's threshold can fire at all")
 
 
 func test_a_seeded_stream_replays_and_two_seeds_differ(t: TestHarness) -> void:
@@ -111,3 +121,43 @@ func test_fmt_keeps_the_readout_narrow(t: TestHarness) -> void:
 	t.eq(SimUtil.fmt(1000.0), "1.0K", "thousands take a decimal")
 	t.eq(SimUtil.fmt(10000.0), "10K", "five figures drop it again so the width holds")
 	t.eq(SimUtil.fmt(1000000.0), "1.0M", "millions")
+
+
+## hash3 carries the same load as hash2 and has to be checked the same way: a
+## signed shift silently returns only [0, 0.5) and disables every mechanic whose
+## threshold is above a half, with no error and nothing visibly missing.
+func test_hash3_covers_its_whole_range(t: TestHarness) -> void:
+	var lo := 1.0
+	var hi := 0.0
+	var buckets := [0, 0, 0, 0, 0, 0, 0, 0]
+	var n := 0
+	for a in range(-30, 30):
+		for b in range(0, 60):
+			for c in [0, 17, 41, 977, 1131]:
+				var v := SimUtil.hash3(a, b, c)
+				t.ok(v >= 0.0 and v < 1.0, "hash3(%d,%d,%d) is inside [0,1)" % [a, b, c])
+				lo = minf(lo, v)
+				hi = maxf(hi, v)
+				buckets[int(v * 8.0)] += 1
+				n += 1
+	t.lt(lo, 0.02, "hash3 reaches the bottom of its range")
+	t.gt(hi, 0.98, "hash3 reaches the TOP of its range - a signed shift caps it at a half")
+	var expected := float(n) / 8.0
+	for i in range(8):
+		t.gt(float(buckets[i]), expected * 0.7, "hash3 bucket %d is not starved" % i)
+		t.lt(float(buckets[i]), expected * 1.3, "hash3 bucket %d is not crowded" % i)
+
+
+func test_hash3_is_stable_and_separates_its_salts(t: TestHarness) -> void:
+	for a in range(-5, 6):
+		for b in range(0, 10):
+			t.eq(SimUtil.hash3(a, b, 41), SimUtil.hash3(a, b, 41),
+				"hash3(%d,%d,41) changed between calls" % [a, b])
+	# Two generators on the same cell must not agree, or the seam texture and
+	# the cache placement become the same decision wearing two names.
+	var same := 0
+	for a in range(-40, 40):
+		for b in range(0, 80):
+			if absf(SimUtil.hash3(a, b, 17) - SimUtil.hash3(a, b, 41)) < 1e-9:
+				same += 1
+	t.eq(same, 0, "two seed offsets never return the same value on the same cell")

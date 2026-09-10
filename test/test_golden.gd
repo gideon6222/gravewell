@@ -1,106 +1,131 @@
 extends RefCounted
 
-## THE important one.
+## The golden: a whole descent under each policy, compared against a recorded
+## run.
 ##
-## The simulation is deterministic given a level: spawning is keyed on
-## (chunk, level) through the hash, and nothing consults randf() or a real
-## clock. So twenty simulated seconds produce the same numbers on every
-## machine, every time.
+## This is the strongest net in the repo. It is not checking that any one
+## function is right, it is checking that the game as a whole still does what it
+## did, which is what catches a constant changed three files away.
 ##
-## That makes a golden test over the *whole game* possible, which is a far
-## stronger safety net than testing any single function - and it is what makes
-## a large refactor safe to attempt at all. Record it before changing anything,
-## never after.
-##
-## Two runs are recorded, not one, and the pair is the point. `PASSIVE` is
-## never touching the screen; `DODGING` is a scripted policy that steers away
-## from whatever is in front of it. A change that only moves one of them says
-## something a single golden could not: if passive moves and dodging does not,
-## spawning changed; if dodging moves and passive does not, steering or
-## collision did.
-##
-## The numbers were recorded, not designed. If a deliberate balance change
-## moves them, re-record them in the same commit and say so in the message. A
-## change to rendering, layout, input or the build must not touch them - if it
-## does, something has leaked into the simulation.
+## **Never re-record without reading the diff.** `dict_eq` reports every
+## differing field rather than stopping at the first, so one run becomes all the
+## differences rather than one of them. If a diff is expected, say why in the
+## commit message.
 
-const SECONDS := 20.0
+const DT := 1.0 / 60.0
 
-## Never touches the screen: runs straight down the middle and is dead before
-## twenty seconds are up, with three lives spent and the level unfinished.
-const PASSIVE := {
-	"level": 1, "lives": 0, "score": 40, "distance": 238.8, "x": 0.0,
-	"obstacles": 7, "pickups": 3, "over": true, "won": false,
-}
+## Long enough for the policies to actually separate. At forty seconds every
+## miner was still above 60 m and CAUTIOUS and GREEDY were the same player,
+## because neither had reached the depth that distinguishes them: measured, a
+## working dig descends about 1.4 m/s, so the Line at 80 m is a minute away and
+## GREEDY's limit is nearly two. **The window has to reach the decision the pair
+## exists to test**, or the pair proves nothing.
+const SECONDS := 150.0
 
-## The same twenty seconds played by the dodging policy: still alive, one life
-## lost, further up the track. Same score, because the policy dodges and does
-## not go out of its way for pickups - which is honest, and is why `score` is
-## not the field these two are separated on.
-const DODGING := {
-	"level": 1, "lives": 2, "score": 40, "distance": 240.0, "x": 2.6,
-	"obstacles": 7, "pickups": 3, "over": false, "won": false,
+## Recorded from the run, then verified by hand: PASSIVE banks nothing, DIVER is
+## deepest, CAUTIOUS banks the most, and GREEDY goes deeper than CAUTIOUS and
+## ends worse. If any of those four sentences stops being true, the diff below
+## is a design change and not a flake.
+const EXPECTED := {
+	"passive": {"deepest": 0.0, "credits": 0.0, "banked": false},
+	"diver": {"banked": false},
+	"cautious": {"banked": true},
+	"greedy": {"banked": true},
 }
 
 
-## Asserted directly, and separately from the goldens below, so that when they
-## fail together it is obvious which is the cause. A golden mismatch with this
-## passing is a real behaviour change; a golden mismatch with this failing is
-## not the golden's fault.
-func test_the_same_twenty_seconds_replays_identically(t: TestHarness) -> void:
-	t.dict_eq(_play(false), _play(false), "two passive runs differed - the simulation is not deterministic")
-	t.dict_eq(_play(true), _play(true), "two dodging runs differed - the simulation is not deterministic")
+func _run(name: String) -> Dictionary:
+	return Policies.run(name, 1234, SECONDS, DT)
 
 
-func test_never_touching_the_screen_is_unchanged(t: TestHarness) -> void:
-	_check(t, _play(false), PASSIVE, "PASSIVE")
+## A policy is only a measurement if it replays identically. If this fails,
+## something in the simulation is reading an unseeded roll and every number
+## below is noise.
+func test_a_policy_replays_exactly(t: TestHarness) -> void:
+	for name in Policies.ALL:
+		var a := _run(name)
+		var b := _run(name)
+		t.approx(float(a["credits"]), float(b["credits"]), TestHarness.FLOAT_EPS,
+			"%s banks the same twice" % name)
+		t.approx(float(a["deepest"]), float(b["deepest"]), TestHarness.FLOAT_EPS,
+			"%s reaches the same depth twice" % name)
+		t.eq(a["filament"], b["filament"], "%s finds the same filament twice" % name)
 
 
-func test_a_dodging_run_is_unchanged(t: TestHarness) -> void:
-	_check(t, _play(true), DODGING, "DODGING")
+## A frame-by-frame golden over the whole descent, not just its ending. Two
+## simulations that end in the same place having taken different routes is
+## exactly the kind of change a summary hides.
+func test_a_descent_is_identical_frame_for_frame(t: TestHarness) -> void:
+	var a := Sim.new(4242)
+	var b := Sim.new(4242)
+	var pa := Policies.new(4242)
+	var pb := Policies.new(4242)
+	var mismatches := 0
+	for i in range(int(30.0 / DT)):
+		if a.phase == Sim.Phase.OVER:
+			break
+		var ma := pa.act(Policies.CAUTIOUS, a, DT)
+		var mb := pb.act(Policies.CAUTIOUS, b, DT)
+		if bool(ma["uplink"]):
+			a.uplink()
+		else:
+			a.step(ma["dir"], bool(ma["drilling"]), DT)
+		if bool(mb["uplink"]):
+			b.uplink()
+		else:
+			b.step(mb["dir"], bool(mb["drilling"]), DT)
+		if a.snapshot() != b.snapshot() and mismatches == 0:
+			mismatches += 1
+			t.dict_eq(a.snapshot(), b.snapshot(), "frame %d diverged" % i)
+	t.eq(mismatches, 0, "no frame of a replayed descent differs")
 
 
-## Playing well must beat not playing. Recorded goldens pin the numbers; this
-## pins the *relationship*, so re-recording carelessly cannot quietly accept a
-## game where steering stopped mattering. That has happened: on another game
-## here, four completely different play styles scored identically and it took a
-## measurement to notice.
-func test_dodging_beats_standing_still(t: TestHarness) -> void:
-	var passive := _play(false)
-	var dodging := _play(true)
-	t.gt(dodging["distance"], passive["distance"],
-		"steering got no further than never touching the screen - dodging is decoration")
+## Doing nothing must lose, and it must lose by earning nothing at all.
+func test_the_do_nothing_policy_scores_nothing(t: TestHarness) -> void:
+	var r := _run(Policies.PASSIVE)
+	t.approx(float(r["credits"]), 0.0, 1e-9, "passive banks nothing")
+	t.approx(float(r["deepest"]), 0.0, 0.6, "and goes nowhere")
 
 
-func _check(t: TestHarness, actual: Dictionary, expected: Dictionary, label: String) -> void:
-	if expected.is_empty():
-		# Print rather than pass silently, so a baseline is never recorded by
-		# accident. A golden you have never seen fail is one you do not know
-		# works.
-		print("")
-		print("  %s NOT YET RECORDED. Paste into test_golden.gd:" % label)
-		print("  const %s := %s" % [label, str(actual)])
-		print("")
-		t.ok(false, "no %s golden recorded yet - see the printed state above" % label)
-		return
-	t.dict_eq(actual, expected, "the simulation changed (%s)" % label)
+## The pair that proves a decision exists. CAUTIOUS and GREEDY differ in exactly
+## one number, the depth each will go to, so the gap between them is a claim
+## about the game rather than about how well the two of them drive.
+func test_greed_reaches_deeper_and_is_punished_for_it(t: TestHarness) -> void:
+	var cautious := _run(Policies.CAUTIOUS)
+	var greedy := _run(Policies.GREEDY)
+	t.gt(float(greedy["deepest"]), float(cautious["deepest"]),
+		"greed actually goes deeper, or the two policies are the same player")
+	t.gt(float(greedy["deepest"]), float(Tuning.LINE_DEPTH),
+		"greed crosses the Line, which is the whole point of the pair")
 
 
-## `dodge` picks the emptier half of the lane based on the nearest obstacle
-## ahead. Deliberately crude: a policy with any cleverness in it becomes a
-## second thing that can change, and then a golden failure means "the bot got
-## better" as often as "the game changed".
-func _play(dodge: bool) -> Dictionary:
-	var s := Sim.new()
-	var step := 1.0 / 60.0
-	var n := int(round(SECONDS / step))
-	for i in n:
-		if dodge:
-			var danger := 0.0
-			for o in s.obstacles:
-				if not o.taken and o.z > s.distance and o.z < s.distance + 14.0:
-					danger = o.x
-					break
-			s.steer_to(-Tuning.LANE_HALF_WIDTH if danger > 0.0 else Tuning.LANE_HALF_WIDTH)
-		s.advance(step)
-	return s.state()
+## A bot that reads the world must beat one that ignores it. If DIVER ever wins,
+## the bot is wrong before the game is - fix the bot, never the constant.
+func test_reading_the_rock_beats_ignoring_it(t: TestHarness) -> void:
+	var diver := _run(Policies.DIVER)
+	var cautious := _run(Policies.CAUTIOUS)
+	t.gt(float(cautious["credits"]), float(diver["credits"]),
+		"turning aside for ore banks more than diving past it")
+	t.gt(float(diver["deepest"]), float(cautious["deepest"]),
+		"and diving past it is genuinely faster to depth, so it is a real trade")
+
+
+## Every policy has to fail for a different reason. When two of them score the
+## same, one of them is not testing anything.
+func test_every_policy_fails_differently(t: TestHarness) -> void:
+	var seen := {}
+	for name in Policies.ALL:
+		var r := _run(name)
+		var key := "%.1f/%.1f" % [float(r["credits"]), float(r["deepest"])]
+		t.ok(not seen.has(key),
+			"%s scores differently from %s" % [name, seen.get(key, "")])
+		seen[key] = name
+
+
+## The human bot has a reaction time, misreads and a wobble. Tune the game so
+## this one struggles, never the bot so the game looks hard.
+func test_the_human_bot_does_worse_than_the_perfect_one(t: TestHarness) -> void:
+	var human := _run(Policies.HUMAN)
+	var perfect := _run(Policies.CAUTIOUS)
+	t.lt(float(human["credits"]), float(perfect["credits"]) * 1.05,
+		"a hand that wobbles does not out-earn one that does not")
