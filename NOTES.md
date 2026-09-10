@@ -255,3 +255,64 @@ route succeeds. Otherwise the test would pass by collapse never doing anything.
 | 2026-09-10 | Control displacement from the safe-area bug | **104 px upward** | `scripts/rects.gd` |
 | 2026-09-10 | APK with `build/` packed | **1,423,818,175 bytes** against a 28 MB budget | `check_size.gd` |
 | 2026-09-10 | APK with `build/` excluded | 27.54 MB, +2.10% drift | `check_size.gd` |
+
+## M7: the Hold, and the first filmed run (2026-09-10, 0.6.0)
+
+### The shop is a room
+
+The real `Ship` node is reparented into it, so a part bolted on in the shop is
+bolted on in the world by construction rather than by two systems agreeing. The
+world is hidden entirely behind it: leaving half of it visible is what makes a
+screen read as a pop-up however it is styled, and that was the note Coreward got
+*after* its panel had already been restyled twice.
+
+The rack lays out from the COUNT rather than from a fixed table, the drive frame
+with its seven slots is on the wall from the first hour, and LAUNCH is pinned to
+the bottom where scrolling cannot take it.
+
+**The first screenshot of it had "THE GRAVEWELL DR..." running off the frame**,
+which is the exact "some of the words are cut off" complaint arriving in a new
+room. Labels are sized from the pixels they will occupy: at this camera the
+visible width is about 2.7 units, so the text has to fit inside that before
+anything else about it matters.
+
+### Two currencies
+
+`Upgrades` splits the ladder in two and `test_economy.gd` asserts the split by
+trying to break it: a billion credits cannot buy a pressure seal, and no rung of
+the credit ladder has a filament price. Every counter also carries a `verb`,
+because a tool that only unlocks a door makes backtracking a fetch quest.
+
+Prices use Motherload's rising-step curve plus Rogue Legacy's per-purchase
+surcharge across the whole tree. The first seal costs 4 filament against the
+4.5 a planet yields above the Line, so it is affordable exactly once and not
+comfortably.
+
+### The first filmed run, against the six questions
+
+Reviewed `build/movie/first-minute/sheet.png`, sixty seconds, one tile a second.
+
+1. **Feedback on every action?** Visual yes: the shaft grows behind the ship, the
+   lamp pool moves with it, the thrusters light. **Audio and haptics are absent**
+   and belong to M9. Partial.
+2. **Speed within a fifth of a second, and coasting?** Not answerable from tiles
+   a second apart. Asserted in `test_fly.gd` instead, which is the right place.
+3. **Anything popping in or drawn over something?** No. The terrain rebuild on a
+   cell change is invisible, which is what it was built to be.
+4. **Are the short states visible?** The Line warning and the manifest both
+   appear. The extraction and the Hold are not in this scenario and need their
+   own replays.
+5. **Is the first minute a win, and is the next goal visible?** The first ore is
+   cut within a few seconds and the load readout moves. The uplink at 25 s is
+   hard to confirm from the sheet, which is itself a finding: **banking a haul
+   needs a visible event**, not just a number changing.
+6. **A frame where the player would not know what to do?** Not exactly, but
+   **the middle of the descent is monotonous.** From about 30 s to 50 s the sheet
+   is a long thin shaft with the ship at the bottom and very little else. The
+   lamp is doing its job and the rock is handsome, and there is nothing to
+   decide. That is the honest weakness of the current build and the thing
+   ambience, caches and per-class events exist to fix.
+
+**What the film proves that no screenshot could:** the flood fill reads in
+motion. The shaft bends where the player turned and the light bends with it,
+which is the whole of what he asked for, and it is only legible as a sequence.

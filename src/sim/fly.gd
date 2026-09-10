@@ -34,6 +34,10 @@ var vel := Vector2.ZERO
 ## the direction it is digging in."
 var heading := Vector2(0, 1)
 
+## Set by `Sim` from the thrust ladder, so an upgrade the player bought is felt
+## in the hand rather than being a number in a shop.
+var speed_mult := 1.0
+
 var touching := false            ## the box is against rock this frame
 var impact_speed := 0.0          ## speed lost to a collision this frame, for damage
 
@@ -49,7 +53,7 @@ func step(dir: Vector2, load_kg: float, density: float, dt: float) -> void:
 	impact_speed = 0.0
 	var held := dir.length_squared() > 0.001
 
-	var top := Tuning.speed_for(load_kg)
+	var top := Tuning.speed_for(load_kg) * speed_mult
 	if held:
 		var target := dir.normalized() * top
 		var k := SimUtil.smooth(Tuning.THRUST_RATE, dt)

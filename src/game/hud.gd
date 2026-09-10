@@ -47,6 +47,9 @@ var _pad: DPad
 var _lamp_btn: PlateButton
 var _uplink_btn: PlateButton
 var _manifest: ManifestSheet
+var _launch_btn: PlateButton
+var _hold_hint: Label
+var _touch: TouchLayer
 
 var _mono: FontFile
 var _face: FontFile
@@ -62,6 +65,7 @@ func setup(s: Sim) -> void:
 
 	_build_instruments()
 	_build_controls()
+	_build_hold_ui()
 	_build_manifest()
 
 
@@ -187,6 +191,37 @@ func _place_button(b: PlateButton, from_right: float, from_bottom: float) -> voi
 	add_child(b)
 
 
+## The Hold's own controls: a pinned LAUNCH and a layer that catches the taps
+## and drags the room reads.
+func _build_hold_ui() -> void:
+	_touch = TouchLayer.new()
+	_touch.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_touch.visible = false
+	add_child(_touch)
+
+	_launch_btn = PlateButton.new()
+	_launch_btn.setup("LAUNCH", _face, _mono)
+	_launch_btn.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
+	_launch_btn.offset_left = 40.0
+	_launch_btn.offset_right = -40.0
+	# **Pinned to the bottom of the scrolling sheet.** "it won't scroll down so I
+	# can't see all of the upgrades or close out of the menu" is a blocker that
+	# has shipped once, and the answer is that the way out never scrolls.
+	_launch_btn.offset_top = -180.0
+	_launch_btn.offset_bottom = -48.0
+	_launch_btn.visible = false
+	add_child(_launch_btn)
+
+	# Under the bank line at the top, not down among the cases: a hint laid over
+	# the rack is one more thing competing with the thing it is explaining.
+	_hold_hint = _label(_face, 28, DIM)
+	_hold_hint.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_hold_hint.offset_left = 22.0
+	_hold_hint.offset_top = 152.0
+	_hold_hint.visible = false
+	add_child(_hold_hint)
+
+
 func _build_manifest() -> void:
 	_manifest = ManifestSheet.new()
 	_manifest.setup(_face, _mono)
@@ -201,6 +236,24 @@ func _on_manifest() -> void:
 # ── the frame ─────────────────────────────────────────────────────────────
 
 func tick(dt: float) -> void:
+	var in_hold := sim.phase == Sim.Phase.HOLD
+	_touch.visible = in_hold
+	_launch_btn.visible = in_hold
+	_hold_hint.visible = in_hold
+	for c in [_depth, _power, _hull, _load_btn, _rate, _state, _pad, _lamp_btn, _uplink_btn]:
+		c.visible = not in_hold
+	if in_hold:
+		_bank.text = "%s cr   %d fil   %d/7 cores" % [
+			SimUtil.fmt(sim.credits), sim.filament, sim.cores]
+		_launch_btn.set_enabled(true)
+		if sim.planet_finished():
+			_launch_btn.set_caption("LAUNCH", "to a new world")
+			_hold_hint.text = "tap a case to fit it - drag to see the rest"
+		else:
+			_launch_btn.set_caption("DESCEND", "your tunnels are still open")
+			_hold_hint.text = "tap a case to fit it - drag to see the rest"
+		return
+
 	_depth.text = "%d m" % int(sim.flight.depth())
 	_power.set_value(sim.power_frac(), "%d%%" % int(sim.power_frac() * 100.0), dt)
 	_hull.set_value(sim.hull_frac(), "%d%%" % int(sim.hull_frac() * 100.0), dt)
@@ -313,6 +366,32 @@ class Gauge extends Control:
 		if _mono != null:
 			draw_string(_mono, Vector2(2.0, size.y + 28.0), _readout,
 				HORIZONTAL_ALIGNMENT_LEFT, -1, 26, INK)
+
+
+## A bare surface that reports taps and drags, for the Hold. It exists so the
+## room can be picked with a ray against its own geometry: the hit box is then
+## the case itself and not a rectangle somebody typed.
+class TouchLayer extends Control:
+	signal touched(at: Vector2, pressed: bool)
+	signal dragged(at: Vector2, relative: Vector2)
+
+	func _init() -> void:
+		mouse_filter = Control.MOUSE_FILTER_STOP
+		gui_input.connect(_on_input)
+
+	func _on_input(event: InputEvent) -> void:
+		if event is InputEventScreenTouch:
+			touched.emit(event.position, event.pressed)
+			accept_event()
+		elif event is InputEventScreenDrag:
+			dragged.emit(event.position, event.relative)
+			accept_event()
+		elif event is InputEventMouseButton:
+			touched.emit(event.position, event.pressed)
+			accept_event()
+		elif event is InputEventMouseMotion and (event as InputEventMouseMotion).button_mask != 0:
+			dragged.emit(event.position, event.relative)
+			accept_event()
 
 
 ## The d-pad, drawn, absolute rather than relative: the picture always says

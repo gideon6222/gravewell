@@ -30,7 +30,7 @@ signal descent_over(outcome: String)
 signal core_cut(seconds: float)
 signal collapsed(x: int, d: int)
 
-enum Phase { DESCENT, EXTRACTION, OVER }
+enum Phase { DESCENT, EXTRACTION, OVER, HOLD }
 
 ## Persistent across descents and planets. Credits are mined; filament is only
 ## ever FOUND, and it is the only thing that buys a counter to a threat.
@@ -38,6 +38,16 @@ var credits: float = 0.0
 var filament: int = 0
 var cores: int = 0
 
+## The ladder, by upgrade id. `bought` is the count across the whole tree, which
+## is what makes every purchase raise the price of the next one.
+var levels: Dictionary = {}
+var bought: int = 0
+
+## The record that gates the rack. Depth is the cheapest structural gate there
+## is, because it cannot be farmed, and it is shown rather than hidden.
+var record: float = 0.0
+
+var planet: int = 1
 var world: World
 var flight: Flight
 
@@ -75,8 +85,40 @@ var _warned_line := false
 
 
 func _init(seed_value: int = 1, world_class: int = 0) -> void:
+	planet = seed_value
 	world = World.new(seed_value, world_class)
 	flight = Flight.new(world)
+
+
+## Into the Hold, which is the only shop and the only place between descents.
+func enter_hold() -> void:
+	phase = Phase.HOLD
+
+
+## Whether the last descent finished the planet. Only carrying a core out does.
+func planet_finished() -> bool:
+	return outcome == "escaped with the core"
+
+
+## Out of the Hold. Either back down the shaft you already cut, or on to a new
+## world if you carried this one's core out.
+func launch() -> void:
+	if planet_finished():
+		next_planet()
+	else:
+		redescend()
+
+
+## A new world. Everything the player has KEPT comes with them - credits,
+## filament, cores, the ladder, the record - and only the planet is new.
+func next_planet() -> void:
+	planet += 1
+	world = World.new(planet, 0)
+	flight = Flight.new(world)
+	drops.clear()
+	deepest = 0.0
+	descents = 0
+	redescend()
 
 
 ## Start another descent on the SAME planet. The world, and therefore every
@@ -85,7 +127,7 @@ func redescend() -> void:
 	flight = Flight.new(world)
 	phase = Phase.DESCENT
 	outcome = ""
-	power = Tuning.POWER_MAX
+	power = power_capacity()
 	hull = Tuning.HULL_MAX
 	hold = {}
 	load_kg = 0.0
@@ -95,6 +137,84 @@ func redescend() -> void:
 	extract_total = 0.0
 	rising = 0.0
 	descents += 1
+
+
+# ── what the ladder actually changes ──────────────────────────────────────
+#
+# Every constant the player can buy is read through here rather than from
+# `Tuning` directly, so an upgrade cannot be a number in a shop that changes
+# nothing in the world. `test_economy.gd` asserts each of these moves.
+
+func level_of(id: String) -> int:
+	return int(levels.get(id, 0))
+
+
+func drill_rate() -> float:
+	return Tuning.DRILL_RATE * Upgrades.mult("drill", level_of("drill"))
+
+
+func hold_capacity() -> float:
+	return Tuning.HOLD_KG * Upgrades.mult("hold", level_of("hold"))
+
+
+func power_capacity() -> float:
+	return Tuning.POWER_MAX * Upgrades.mult("power", level_of("power"))
+
+
+func speed_mult() -> float:
+	return Upgrades.mult("thrust", level_of("thrust"))
+
+
+## The lamp reach, and therefore the FRAMING. His suggestion, and it was the
+## right shape: a lamp that only grows a radius while the camera frames a fixed
+## number of rows can never be felt, because the frame is always inside the lit
+## circle. So the camera pulls back with it, and the darkness is what justifies
+## the tight frame at the start.
+func lamp_reach() -> float:
+	return Tuning.lamp_reach(lamp_mode, power_frac()) * Upgrades.mult("lamp", level_of("lamp"))
+
+
+## What one rung costs right now, or -1 if it is maxed or still sealed.
+func cost_of(id: String) -> float:
+	var u := Upgrades.ladder_of(id)
+	if u.is_empty():
+		return -1.0
+	if record < Upgrades._gate_of(id, level_of(id)):
+		return -1.0
+	if u.has("cost"):
+		return float(Upgrades.counter_cost(id, level_of(id)))
+	return Upgrades.price(id, level_of(id), bought)
+
+
+## Take a rung. Returns true if it was actually bought.
+##
+## Credits and filament are never interchangeable here: a counter checks
+## filament and nothing else, which is the whole two-currency design in one
+## branch.
+func buy(id: String) -> bool:
+	var u := Upgrades.ladder_of(id)
+	if u.is_empty():
+		return false
+	var cost := cost_of(id)
+	if cost < 0.0:
+		return false
+	if u.has("cost"):
+		if filament < int(cost):
+			return false
+		filament -= int(cost)
+	else:
+		if credits < cost:
+			return false
+		credits -= cost
+	levels[id] = level_of(id) + 1
+	bought += 1
+	# Capacity bought mid-game is capacity you have now, not next descent.
+	power = minf(power, power_capacity())
+	return true
+
+
+func rack() -> Array[Dictionary]:
+	return Upgrades.rack(levels, record, bought, credits, filament)
 
 
 # ── the frame ─────────────────────────────────────────────────────────────
@@ -117,6 +237,7 @@ func step(dir: Vector2, drilling: bool, dt: float) -> void:
 	var target := flight.drill_target(dir)
 	var drill_engaged := drilling and held and not Flight.no_target(target)
 
+	flight.speed_mult = speed_mult()
 	flight.step(dir, load_kg, density, dt)
 
 	if flight.impact_speed > Tuning.IMPACT_FREE_SPEED and not drill_engaged:
@@ -132,6 +253,7 @@ func step(dir: Vector2, drilling: bool, dt: float) -> void:
 		_extract(dt)
 
 	deepest = maxf(deepest, flight.depth())
+	record = maxf(record, deepest)
 	if power <= 0.0:
 		_end("out of power")
 	elif hull <= 0.0:
@@ -146,7 +268,7 @@ func _drain(dir: Vector2, dt: float) -> void:
 		power -= Tuning.POWER_PER_THRUST_S * dt
 	power -= Tuning.LAMP_DRAIN[lamp_mode] * dt
 	power -= Tuning.POWER_PER_KG_S * load_kg * dt
-	power = minf(power, Tuning.POWER_MAX)
+	power = minf(power, power_capacity())
 
 
 ## Cut whatever the nose is pointed at. Power is charged for the hit points
@@ -155,7 +277,7 @@ func _drain(dir: Vector2, dt: float) -> void:
 func _drill(c: Vector2i, dt: float) -> void:
 	if Flight.no_target(c) or world.is_open(c.x, c.y):
 		return
-	var res := world.cut(c.x, c.y, Tuning.DRILL_RATE * dt)
+	var res := world.cut(c.x, c.y, drill_rate() * dt)
 	if res["cut"] <= 0.0:
 		return
 	power -= float(res["cut"]) * Tuning.POWER_PER_HP
@@ -176,7 +298,7 @@ func _drill(c: Vector2i, dt: float) -> void:
 	if kg <= 0.0:
 		return
 	# The drill NEVER refuses. A full hold leaves the ore on the ground.
-	if load_kg + kg > Tuning.HOLD_KG:
+	if load_kg + kg > hold_capacity():
 		drops.append({"x": c.x, "d": c.y, "mat": int(res["mat"]), "kg": kg, "value": value})
 	else:
 		_stow(int(res["mat"]), kg, value)
@@ -198,7 +320,7 @@ func _collect() -> void:
 	while i >= 0:
 		var dr := drops[i]
 		var away := Vector2(float(dr["x"]), float(dr["d"])) - flight.pos
-		if away.length() < 1.1 and load_kg + float(dr["kg"]) <= Tuning.HOLD_KG:
+		if away.length() < 1.1 and load_kg + float(dr["kg"]) <= hold_capacity():
 			_stow(int(dr["mat"]), float(dr["kg"]), float(dr["value"]))
 			drops.remove_at(i)
 		i -= 1
@@ -216,7 +338,7 @@ func _pressure(d: float, density: float, dt: float) -> void:
 		return
 	var excess: float = density - Tuning.density_at(float(Tuning.LINE_DEPTH))
 	if excess > 0.0:
-		hull -= Tuning.PRESSURE_RATE * excess * dt
+		hull -= Tuning.PRESSURE_RATE * excess * Upgrades.seal_relief(level_of("seal")) * dt
 
 
 # ── the extraction ────────────────────────────────────────────────────────
@@ -297,7 +419,7 @@ func pressure_rate() -> float:
 	if d < float(Tuning.LINE_DEPTH):
 		return 0.0
 	var excess: float = Tuning.density_at(d) - Tuning.density_at(float(Tuning.LINE_DEPTH))
-	return maxf(Tuning.PRESSURE_RATE * excess, 0.0)
+	return maxf(Tuning.PRESSURE_RATE * excess * Upgrades.seal_relief(level_of("seal")), 0.0)
 
 
 # ── selling, without a journey ────────────────────────────────────────────
@@ -356,7 +478,7 @@ func _end(why: String) -> void:
 # ── what the shell reads ──────────────────────────────────────────────────
 
 func power_frac() -> float:
-	return clampf(power / Tuning.POWER_MAX, 0.0, 1.0)
+	return clampf(power / power_capacity(), 0.0, 1.0)
 
 
 func hull_frac() -> float:
@@ -364,16 +486,12 @@ func hull_frac() -> float:
 
 
 func load_frac() -> float:
-	return clampf(load_kg / Tuning.HOLD_KG, 0.0, 1.0)
+	return clampf(load_kg / hold_capacity(), 0.0, 1.0)
 
 
 ## How far the lamp reaches right now, which is the reach for its mode faded
 ## down by how little power is left. Being in trouble looks like the world
 ## closing in rather than like a number turning red.
-func lamp_reach() -> float:
-	return Tuning.lamp_reach(lamp_mode, power_frac())
-
-
 func cycle_lamp() -> void:
 	lamp_mode = (lamp_mode + 1) % 3
 

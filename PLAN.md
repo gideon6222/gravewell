@@ -936,7 +936,7 @@ half-finished on `main`.
       the ascent with the route bound and its test, failure that costs the planet and never the
       save. *Proves it:* the ascent bound test and smoke driving both outcomes. *Film:*
       `extraction`, `ascent`.
-- [ ] **M7. The Hold.** The room, the rack with physical parts and the real ship in it, finger
+- [x] **M7. The Hold.** (0.6.0) The room, the rack with physical parts and the real ship in it, finger
       scrolling with the pinned button, the chart table, the drive frame with its seven empty
       slots visible from the first hour. *Proves it:* the sealed-row test, and the room tested
       at a size where it must scroll. *Film:* `hold`, `chart`.

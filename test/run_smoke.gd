@@ -15,8 +15,27 @@ extends SceneTree
 ## completely silently.
 
 var _t := TestHarness.new()
+var _main
+var _frames := 0
 
 
+## **Freeze first, then let real frames pass, THEN assert.**
+##
+## Both halves matter and they pull in opposite directions.
+##
+## Freezing first is what makes the run deterministic: `_process` returns early
+## while frozen, so the simulation does not advance by however many milliseconds
+## the window took to open, and sixty game seconds is sixty game seconds on every
+## machine.
+##
+## Letting frames pass is what makes the assertions mean anything. `_ready` does
+## not run at `add_child()` inside `_initialize()`; it is deferred to the first
+## processed frame. Until then **Control layout is unresolved and a Camera3D is
+## not inside the scene at all** - `unproject_position` errors outright and every
+## anchored control reports zero size. A harness that does everything in
+## `_initialize()` is asserting against a scene that has not been built yet,
+## which is how a hundred-pixel layout displacement passed every check in this
+## file for a whole milestone.
 func _initialize() -> void:
 	var scene: PackedScene = load("res://src/game/main.tscn")
 	_t.begin("smoke > the scene loads")
@@ -24,15 +43,20 @@ func _initialize() -> void:
 	if scene == null:
 		_finish()
 		return
+	_main = scene.instantiate()
+	root.add_child(_main)
+	_main.freeze()
 
-	var main = scene.instantiate()
-	root.add_child(main)
 
-	# Freeze first, then step. `_ready` has not fired yet - add_child() during
-	# SceneTree._initialize() defers it to the first processed frame - so
-	# freeze() boots the scene explicitly, and the assertions come after it.
-	main.freeze()
+func _process(_delta: float) -> bool:
+	_frames += 1
+	if _frames < 4:
+		return false
+	_run(_main)
+	return true
 
+
+func _run(main) -> void:
 	_t.begin("smoke > the scene builds its world")
 	_t.ok(main.sim != null, "Sim was never created")
 	_t.ok(main._terrain != null, "the terrain is missing from the scene")
@@ -40,12 +64,18 @@ func _initialize() -> void:
 	_t.ok(main._ship != null, "the ship is missing from the scene")
 	_t.ok(main._lamp != null, "the lamp is missing from the scene")
 
+	# The layout has actually resolved by now, which is the whole reason for
+	# waiting: a control at zero size passes every anchor assertion trivially.
+	_t.gt(main._hud._pad.get_global_rect().size.x, 100.0,
+		"the d-pad has no size, so the layout has not resolved and nothing below means anything")
+
 	_drive_a_descent(main)
 	_check_everything_that_exists_is_drawn(main)
 	_check_the_controls_are_anchored(main)
 	_check_there_is_always_a_way_on(main)
 	_check_the_buttons_do_their_jobs(main)
 	_check_the_ship_is_a_real_machine(main)
+	_check_the_hold_is_a_place(main)
 
 	main.free()
 	_finish()
@@ -266,6 +296,74 @@ func _check_the_ship_is_a_real_machine(main) -> void:
 	_t.approx(ship.drill.rotation.y, before, 1e-6, "the drill spins when it is not cutting")
 	ship.drive(true, 0.0, 0.5)
 	_t.ok(absf(ship.drill.rotation.y - before) > 0.1, "the drill does not spin when it is cutting")
+
+
+## The Hold is the screen he opens first, and the one Coreward got wrong four
+## times running. These are the four things that made the fourth attempt work.
+func _check_the_hold_is_a_place(main) -> void:
+	_t.begin("smoke > the Hold is a place, not a panel")
+	main.sim.credits = 100000.0
+	main.sim.filament = 99
+	main.sim.record = 250.0
+	main.sim.cores = 2
+	main.sim.outcome = "out of power"
+	main.sim.enter_hold()
+	main.advance(0.2)
+
+	_t.ok(main._in_hold, "the Hold never opened")
+	_t.ok(main._hold != null, "there is no room")
+
+	# **It hides the game entirely.** Leaving half the world visible behind a
+	# shop is what makes it read as a pop-up however it is styled.
+	_t.eq(main._terrain.visible, false, "the world is still drawn behind the Hold")
+	_t.eq(main._haze.visible, false, "the tunnel glow is still drawn behind the Hold")
+
+	# The REAL ship is in the room, not a model of it, so a part bolted on here
+	# is bolted on out there by construction.
+	_t.ok(main._ship.get_parent() == main._hold._ship_cradle,
+		"the Hold shows a copy of the ship rather than the ship")
+
+	# The room lays out from the COUNT. Coreward went from ten cases to fifteen
+	# without the room changing, and the report was words cut off and clutter.
+	var rows: Array = main.sim.rack()
+	_t.gt(float(rows.size()), 3.0, "the rack is empty")
+	_t.eq(main._hold._cases.size(), rows.size(), "the room does not lay out from the rack")
+	_t.eq(main._hold._slots.size(), 7, "the drive does not have seven slots")
+
+	# The way out never scrolls.
+	_t.eq(main._hud._launch_btn.anchor_bottom, 1.0, "LAUNCH is not pinned to the bottom")
+	_t.lt(main._hud._launch_btn.offset_bottom, 0.0, "LAUNCH is not offset up from the edge")
+	_t.eq(main._hud._launch_btn.visible, true, "there is no way out of the Hold")
+	_t.eq(main._hud._pad.visible, false, "the d-pad is still live inside the shop")
+
+	# Tapping a case fits the part. Driven through the room's own ray pick, so
+	# the hit box is the geometry rather than a rectangle somebody typed.
+	var first: Node3D = main._hold._cases[0]
+	var id: String = String(first.get_meta("id"))
+	var level_before: int = main.sim.level_of(id)
+	var at: Vector2 = main._hold._cam.unproject_position(first.position + Vector3(0, 0, 0.15))
+	_t.eq(main._hold.pick(at), id, "the ray pick does not hit the case it was aimed at")
+	main._on_hold_touch(at, true)
+	main._on_hold_touch(at, false)
+	_t.eq(main.sim.level_of(id), level_before + 1, "tapping a case did not fit the part")
+
+	# And a drag pans rather than buying, or the two verbs fight.
+	var level_now: int = main.sim.level_of(id)
+	main._on_hold_touch(at, true)
+	main._on_hold_drag(at + Vector2(0, 60), Vector2(0, 60))
+	main._on_hold_touch(at + Vector2(0, 60), false)
+	_t.eq(main.sim.level_of(id), level_now, "a drag across a case bought it")
+
+	_t.begin("smoke > leaving the Hold puts the world back")
+	main.sim.launch()
+	main.advance(0.2)
+	_t.eq(main.sim.phase, Sim.Phase.DESCENT, "LAUNCH did not start a descent")
+	_t.eq(main._terrain.visible, true, "the world did not come back")
+	_t.ok(main._ship.get_parent() == main, "the ship was left in the Hold")
+	main.press_pad(Vector2(0, 1))
+	var before: float = main.sim.flight.depth()
+	main.advance(2.0)
+	_t.gt(main.sim.flight.depth(), before, "the game does not play after leaving the Hold")
 
 
 func _count_wrong_layer(n: Node) -> int:

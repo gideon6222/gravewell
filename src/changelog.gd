@@ -9,9 +9,23 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.5.0"
+const VERSION := "0.6.0"
 
 const RELEASES := [
+	{
+		"version": "0.6.0",
+		"date": "2026-09-10",
+		"title": "The Hold",
+		"notes": [
+			"A room inside your own ship, with the real ship in the middle of it.",
+			"Upgrade parts sit on plinths as objects, not as rows in a list.",
+			"Tap a case to fit the part. Drag to see the rest of the rack.",
+			"The Gravewell Drive is on the wall from the first hour: seven slots, one per world.",
+			"Two currencies. Credits are mined and buy the ladder.",
+			"Filament is only ever FOUND, and it is the only thing that buys safety.",
+			"So grinding the shallow band buys a bigger hold and never once buys survival.",
+		],
+	},
 	{
 		"version": "0.5.0",
 		"date": "2026-09-10",

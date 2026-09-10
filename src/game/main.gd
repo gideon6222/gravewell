@@ -54,6 +54,10 @@ var _rock_mat: ShaderMaterial
 var _haze_mat: ShaderMaterial
 var _env: Environment
 var _last_cell := Vector2i(99999, 99999)
+var _hold: Hold
+var _in_hold := false
+var _drag_from := Vector2.ZERO
+var _dragging := false
 var _ui: Control
 var _hud: Hud
 
@@ -208,6 +212,9 @@ func _build_ui() -> void:
 	_ui.add_child(_hud)
 	_hud._lamp_btn.pressed.connect(func(): sim.cycle_lamp())
 	_hud._uplink_btn.pressed.connect(func(): sim.uplink())
+	_hud._launch_btn.pressed.connect(func(): sim.launch())
+	_hud._touch.touched.connect(_on_hold_touch)
+	_hud._touch.dragged.connect(_on_hold_drag)
 
 	_apply_safe_area()
 	# `get_viewport()` is null until the node is inside the tree, and a harness
@@ -276,6 +283,17 @@ func _process(delta: float) -> void:
 
 
 func _tick(dt: float) -> void:
+	# The Hold is a different place, not a screen over this one. Nothing about
+	# the descent runs while the player is in it.
+	if sim.phase == Sim.Phase.HOLD:
+		if not _in_hold:
+			_enter_hold()
+		_hold.tick(dt)
+		_hud.tick(dt)
+		return
+	if _in_hold:
+		_leave_hold()
+
 	_read_input()
 	sim.step(_pad_vec, _drilling, dt)
 	_sync_camera(dt)
@@ -365,6 +383,69 @@ func _redraw_world() -> void:
 		_env.fog_light_color = _env.fog_light_color.lerp(air, 0.08)
 		_env.ambient_light_color = _env.ambient_light_color.lerp(
 			Color(air.r * 1.6 + 0.05, air.g * 1.6 + 0.06, air.b * 1.6 + 0.08), 0.08)
+
+
+# ── the Hold ──────────────────────────────────────────────────────────────
+
+## **Hide the game entirely.** Leaving half the world visible behind a shop is
+## what makes it read as a pop-up however it is styled, and that was the note
+## Coreward got after the panel had already been restyled twice.
+func _enter_hold() -> void:
+	_in_hold = true
+	if _hold == null:
+		_hold = Hold.new()
+		add_child(_hold)
+		_hold.setup(sim, _ship)
+	else:
+		_ship.get_parent().remove_child(_ship)
+		_ship.position = Vector3.ZERO
+		_ship.rotation = Vector3.ZERO
+		_ship.scale = Vector3.ONE
+		_hold._ship_cradle.add_child(_ship)
+	_hold.visible = true
+	_hold._cam.current = true
+	_hold.refresh()
+	_terrain.visible = false
+	_haze.visible = false
+	_collapse.visible = false
+	_lamp.visible = false
+	_env.background_color = Color(0.03, 0.031, 0.036)
+
+
+func _leave_hold() -> void:
+	_in_hold = false
+	if _hold != null:
+		_hold.visible = false
+		_ship.get_parent().remove_child(_ship)
+		_ship.scale = Vector3.ONE
+		add_child(_ship)
+	_cam.current = true
+	_terrain.visible = true
+	_haze.visible = true
+	_lamp.visible = true
+	_env.background_color = Color(0.02, 0.021, 0.026)
+	_last_cell = Vector2i(99999, 99999)      ## force a rebuild on the way back
+
+
+## A tap in the Hold buys what it hit; a drag pans the room. Discriminated by
+## MOVEMENT rather than by time, so the two verbs never fight.
+func _on_hold_touch(at: Vector2, pressed: bool) -> void:
+	if pressed:
+		_drag_from = at
+		_dragging = false
+		return
+	if _dragging:
+		return
+	var id := _hold.pick(at)
+	if id != "" and sim.buy(id):
+		_hold.refresh()
+
+
+func _on_hold_drag(at: Vector2, relative: Vector2) -> void:
+	if absf(at.y - _drag_from.y) > 14.0:
+		_dragging = true
+	if _dragging:
+		_hold.pan(relative.y, float(get_viewport().get_visible_rect().size.y))
 
 
 # ── the harness seam ──────────────────────────────────────────────────────
