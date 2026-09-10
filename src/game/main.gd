@@ -525,7 +525,11 @@ func _redraw_world() -> void:
 	# and the hull load. Volumetric fog is Forward+ only, so this is the built-in
 	# depth fog doing the work, thickened by the same quantity.
 	if _env != null:
-		_env.fog_density = clampf(0.010 + density * 0.020, 0.0, 0.35)
+		# Set against a screenshot at the phone's aspect, which is the only place
+		# a fog curve can honestly be judged. At 0.020 the deep bands washed the
+		# rock out completely: the air being denser has to be felt, and the rock
+		# still has to be legible, because the rock is where the ore is.
+		_env.fog_density = clampf(0.010 + density * 0.012, 0.0, 0.20)
 		# The air changes colour at the same metre the rock does and the hull
 		# starts draining. Four things on one metre, from one table, so they
 		# cannot drift apart the way they did in Coreward.

@@ -429,3 +429,62 @@ aberration on the edges of every button. Two layers, numbered.
 | 2026-09-10 | Kenney packs as downloaded, and trimmed | 2.5 MB to 800 KB | six families kept of twenty |
 | 2026-09-10 | Generated beds and theme | three 32 s mono WAVs, 1.4 MB each | `gen_audio.gd` |
 | 2026-09-10 | APK with all audio | 28.78 MB, +6.7% before the budget was re-recorded | `check_size.gd` |
+
+## M10: the shell, and the desk playtest (2026-09-10, 0.9.0)
+
+### What is in
+
+A title over the live world with CONTINUE greyed rather than hidden. Save and
+settings in two separate files with a one-way erase latch. The pause sheet with
+the version, the build stamp and every patch note. The back button unwinding one
+layer per press, with its handler and `quit_on_go_back` in the same commit. A
+generated adaptive icon, a monochrome layer, a splash in the game's own dark, and
+`keep_screen_on`.
+
+### Screens looked at as pictures, and what each one cost
+
+Every screen in this game has now been looked at once at the phone's aspect
+before shipping, and **three of them had text running off the frame**, which is
+the same recorded complaint arriving three separate times:
+
+| Screen | What the picture showed | Fix |
+|---|---|---|
+| The Hold | "THE GRAVEWELL DR..." off the right edge | centred, and sized from the pixels it occupies |
+| The pause sheet | every patch note cut off mid-word | `draw_string` CLIPS at its width; `draw_multiline_string` wraps |
+| The title | the version line under the SETTINGS button | moved above the buttons |
+
+That is worth stating plainly: **the rule "take a picture of every screen" caught
+three real faults that no test did, in one milestone.**
+
+### The desk playtest, against the six questions
+
+Reviewed the filmed first minute and the stills of the Hold, the extraction and
+both world classes.
+
+1. **Feedback on every action?** Now yes on all three channels: a sound pitched
+   by rock hardness on every bite, a haptic on every impact, and the visual that
+   was already there. Camera shake is still absent and belongs in a polish pass.
+2. **Speed inside a fifth of a second, and coasting?** Asserted in `test_fly.gd`
+   rather than read off a contact sheet, which is the right place for it.
+3. **Popping, sweeping, drawn over something?** One real instance, found and
+   fixed: the post-processing was drawn OVER the HUD and put chromatic
+   aberration on the edges of every button.
+4. **Are the short states visible?** The Line warning, the manifest, the Hold and
+   the extraction all have their own stills. The crack warning on Rime does not
+   yet, because a scripted miner digs narrow and never triggers it.
+5. **Is the first minute a win, and is the next goal visible?** The first ore
+   comes within seconds. **Banking a haul still needs a visible event** rather
+   than a number changing, and that is the clearest single thing to do next.
+6. **A frame where the player would not know what to do?** No, but **the middle
+   of the descent is still monotonous**: a long thin shaft with nothing to
+   decide. Unchanged from the first film and still the honest weakness.
+
+### What is NOT done, and why
+
+**The phone run.** `adb devices` reports nothing attached, so none of the
+phone-only paths have been exercised: touch on a real digitiser, the safe area on
+a real notch, frame time, thermal after ten minutes, the back button as a system
+gesture, home and resume, and haptics actually firing. Every one of those is a
+structural assertion in the smoke test and a guess until the device says
+otherwise. **This is the one part of phase one that cannot be finished without
+the phone plugged in.**

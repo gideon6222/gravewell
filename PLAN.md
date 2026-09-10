@@ -948,7 +948,7 @@ half-finished on `main`.
       lowpass, the written theme layered by depth, sound on every action, post under the HUD,
       growth on the rock faces, credits. *Proves it:* the monotonic mood-arc test and a real
       span on the crossfade.
-- [ ] **M10. Shell, phone and ship.** Title over a live scene, the intro, settings reusing the
+- [~] **M10. Shell, phone and ship.** (0.9.0) Shell done. **The phone run is blocked: `adb devices` reports nothing attached.** Title over a live scene, the intro, settings reusing the
       pause sheet, save on every meaningful change and on `APPLICATION_PAUSED`, back button
       with its handler in the same commit, icon, splash, package. Then `/playtest desk`,
       `/playtest phone`, `/ship`.
