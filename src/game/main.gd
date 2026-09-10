@@ -55,6 +55,9 @@ var _haze_mat: ShaderMaterial
 var _env: Environment
 var _last_cell := Vector2i(99999, 99999)
 var _hold: Hold
+var _audio: GameAudio
+var _post: ColorRect
+var _post_mat: ShaderMaterial
 var _in_hold := false
 var _drag_from := Vector2.ZERO
 var _dragging := false
@@ -88,8 +91,42 @@ func _ensure_booted() -> void:
 	sim = Sim.new(1)
 	_build_world()
 	_build_ui()
+	_build_audio()
 	_sync_camera(1.0)
 	_redraw_world()
+
+
+## Fire visual, audio, camera and haptic channels as ONE event. Any one alone
+## reads as cheap, and until this milestone the game had only the first.
+func _build_audio() -> void:
+	_audio = GameAudio.new()
+	add_child(_audio)
+	sim.drill_bite.connect(func(hardness): _audio.drill_bite(hardness))
+	sim.broke_cell.connect(func(x, d, m, v):
+		_audio.broke(m != Ore.ROCK, Classes.is_brittle(sim.world.class_id))
+		_haptic(18, 0.35))
+	sim.hull_hit.connect(func(_speed):
+		_audio.hull_hit()
+		_haptic(30, 0.6))
+	sim.uplinked.connect(func(_value, _cost):
+		_audio.uplinked()
+		_haptic(24, 0.5))
+	sim.found_cache.connect(func(_n):
+		_audio.play("confirm", -2.0, 1.15)
+		_haptic(30, 0.6))
+	sim.collapsed.connect(func(_x, _d):
+		_audio.play("break", -2.0, 0.7)
+		_haptic(26, 0.55))
+	sim.core_cut.connect(func(_seconds):
+		_audio.play("uplink", 0.0, 0.6)
+		_haptic(60, 0.9))
+
+
+## Haptics: 10 to 30 ms at 0.3 to 0.6 amplitude. `permissions/vibrate` is set in
+## both export presets or this silently does nothing.
+func _haptic(ms: int, amplitude: float) -> void:
+	if OS.has_feature("mobile"):
+		Input.vibrate_handheld(ms, amplitude)
 
 
 # ── the scene ─────────────────────────────────────────────────────────────
@@ -194,7 +231,17 @@ func _build_world() -> void:
 
 
 func _build_ui() -> void:
+	# **Two layers, and the order is the point.** Post goes on the lower one, the
+	# HUD on the higher: a vignette over the instruments dims the one thing that
+	# must stay legible, and grain over type is just type that is harder to read.
+	# Added as siblings in one layer, the post drew LAST and therefore on top,
+	# which put chromatic aberration on the edges of every button.
+	var post_layer := CanvasLayer.new()
+	post_layer.layer = 0
+	add_child(post_layer)
+
 	var layer := CanvasLayer.new()
+	layer.layer = 1
 	add_child(layer)
 
 	# One full-rect Control that everything anchors to, with the safe area
@@ -206,6 +253,18 @@ func _build_ui() -> void:
 	_ui.set_anchors_preset(Control.PRESET_FULL_RECT)
 	_ui.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	layer.add_child(_ui)
+
+	# **Post goes UNDER the HUD.** A vignette over the instruments dims the one
+	# thing that must stay legible, and grain over type is just type that is
+	# harder to read.
+	_post_mat = ShaderMaterial.new()
+	_post_mat.shader = load("res://src/game/post.gdshader")
+	_post = ColorRect.new()
+	_post.material = _post_mat
+	_post.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_post.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_post.color = Color(1, 1, 1, 1)
+	post_layer.add_child(_post)
 
 	_hud = Hud.new()
 	_hud.setup(sim)
@@ -298,6 +357,11 @@ func _tick(dt: float) -> void:
 	sim.step(_pad_vec, _drilling, dt)
 	_sync_camera(dt)
 	_redraw_world()
+	_audio.tick(sim, dt)
+	# The vignette closes past the Line, which is the fourth thing landing on
+	# that metre and the only one the player feels rather than reads.
+	_post_mat.set_shader_parameter("pressure",
+		clampf(sim.pressure_rate() / 3.0, 0.0, 1.0))
 	_hud.tick(dt)
 
 

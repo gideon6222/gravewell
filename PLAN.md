@@ -944,7 +944,7 @@ half-finished on `main`.
       come down, ice that carries light. The point of this milestone is that the second planet
       proves classes differ by rule. *Proves it:* `test_classes` asserts Rime differs from
       Cinder on at least three of five channels and that its rule fires in a scripted descent.
-- [ ] **M9. Audio, atmosphere and the polish pass.** Flood-driven reverb, density-driven
+- [x] **M9. Audio, atmosphere and the polish pass.** (0.8.0) Flood-driven reverb, density-driven
       lowpass, the written theme layered by depth, sound on every action, post under the HUD,
       growth on the rock faces, credits. *Proves it:* the monotonic mood-arc test and a real
       span on the crossfade.

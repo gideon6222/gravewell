@@ -9,9 +9,23 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.7.0"
+const VERSION := "0.8.0"
 
 const RELEASES := [
+	{
+		"version": "0.8.0",
+		"date": "2026-09-10",
+		"title": "Sound, and the dark it happens in",
+		"notes": [
+			"Every action makes a sound, and the drill is pitched by how hard the rock is.",
+			"The room you are in is the room you hear: a tight shaft is dry, a cavern is enormous.",
+			"The deep is muffled, because the air down there is thicker.",
+			"A written theme, and it goes quiet as the pressure rises rather than louder.",
+			"During the climb out there is no music at all.",
+			"A vignette, film grain and lifted blacks, so the dark reads as a place.",
+			"Haptics on every impact, on the phone.",
+		],
+	},
 	{
 		"version": "0.7.0",
 		"date": "2026-09-10",

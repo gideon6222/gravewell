@@ -369,3 +369,63 @@ the bot digs cardinally and one cell wide, which is exactly the safe way. That i
 the intended shape - narrow is safe, wide is the gamble - but it means the rule
 is opt-in, and whether a real player triggers it is a question for the phone
 rather than for the probe.
+
+## M9: sound, and the dark it happens in (2026-09-10, 0.8.0)
+
+### Sampled and generated, and which is which
+
+`ASSETS.md`: sample where a sample is better, synthesise where the sound must
+answer the game.
+
+**Sampled**, from Kenney (CC0): the drill bite (`impactMining`), rock breaking,
+ore, hull impacts, ice, and the UI. The packs came to 2.5 MB and were trimmed to
+the six families actually used, which is 800 KB.
+
+**Generated at build time** into committed WAVs by `scripts/gen_audio.gd`: two
+ambient beds and the theme, 32 s each. They are generated because they crossfade
+on depth and a recording cannot, and generated at BUILD time because GDScript
+synthesis at runtime costs seconds of black screen on a phone.
+
+### His one recorded outright dislike, answered by construction
+
+"The music has random higher pitch beeps that I dont like."
+
+Nothing in `gen_audio.gd` is chosen at random. The theme is a written 32-step
+phrase over a fixed i-VI-III-VII in A minor, two bars answered by two that
+resolve, with a bass on every bar for the pulse. Every note has a 0.28 s attack
+and a long release, and the root is A1, well below where a sine gets shrill. All
+three of those are readable in the source rather than only audible.
+
+### Two things driven from numbers the game already had
+
+- **The reverb reads the light solver's openness.** The flood already computes
+  how open the space around the ship is in order to decide what the lamp reaches;
+  the reverb reads the same number. A tight shaft is dry and close, a cavern is
+  enormous. One quantity, two uses, and no second notion of room size that could
+  disagree with the first.
+- **The muffle reads the air.** `density_at` drives the fog, the lamp, the drag
+  and the hull load, and now a lowpass. The deep sounds muffled because it is
+  denser, from the same number that makes it look it.
+
+The theme goes QUIETER as the pressure rises, and is silent for the whole
+extraction. The quietest the game ever gets is the moment it is most dangerous.
+
+### The polish pass
+
+A vignette in three stops rather than one falloff, animated grain on the
+mid-tones only, a touch of aberration that grows from the centre, and blacks
+lifted toward the scene colour. The last is the one people leave out: a game this
+dark spends most of its frame at zero, and true black reads as a hole in the
+screen rather than as unlit rock.
+
+**It is under the HUD, and the first version was not.** Added as a sibling in one
+CanvasLayer the post drew LAST and therefore on top, which put chromatic
+aberration on the edges of every button. Two layers, numbered.
+
+### Measured
+
+| Date | What | Number | How |
+|---|---|---|---|
+| 2026-09-10 | Kenney packs as downloaded, and trimmed | 2.5 MB to 800 KB | six families kept of twenty |
+| 2026-09-10 | Generated beds and theme | three 32 s mono WAVs, 1.4 MB each | `gen_audio.gd` |
+| 2026-09-10 | APK with all audio | 28.78 MB, +6.7% before the budget was re-recorded | `check_size.gd` |

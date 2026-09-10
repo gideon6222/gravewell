@@ -62,6 +62,10 @@ func _process(_delta: float) -> bool:
 		return false
 	var img := root.get_texture().get_image()
 	img.save_png("user://shot.png")
+	# Free the scene before quitting, or the run ends with resources still in
+	# use and an ERROR line, which is a test failure even when the picture is
+	# perfect.
+	_main.free()
 	print("wrote %s/shot.png at t=%.1fs" % [OS.get_user_data_dir(), _seconds])
 	quit(0)
 	return true

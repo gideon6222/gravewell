@@ -76,6 +76,7 @@ func _run(main) -> void:
 	_check_the_buttons_do_their_jobs(main)
 	_check_the_ship_is_a_real_machine(main)
 	_check_the_hold_is_a_place(main)
+	_check_the_game_makes_a_sound(main)
 
 	main.free()
 	_finish()
@@ -364,6 +365,68 @@ func _check_the_hold_is_a_place(main) -> void:
 	var before: float = main.sim.flight.depth()
 	main.advance(2.0)
 	_t.gt(main.sim.flight.depth(), before, "the game does not play after leaving the Hold")
+
+
+## **Give the settings panel nothing to switch that does not exist.** If there is
+## a music toggle, there is music, and every sound the game names has to load.
+func _check_the_game_makes_a_sound(main) -> void:
+	_t.begin("smoke > every sound the game names exists")
+	var a: GameAudio = main._audio
+	_t.ok(a != null, "there is no audio at all")
+
+	for bus in [GameAudio.MUSIC_BUS, GameAudio.SFX_BUS, GameAudio.UI_BUS]:
+		_t.gt(float(AudioServer.get_bus_index(bus)), -1.0,
+			"the %s bus does not exist, so its slider would switch nothing" % bus)
+
+	# Every name the game plays has to have loaded a stream, or a sound that
+	# silently does nothing reads as a missing feature rather than a missing file.
+	for name in ["drill", "break", "ore", "hull", "click", "confirm", "deny", "uplink"]:
+		_t.ok(a._sfx.has(name), "the sound named '%s' did not load" % name)
+		if a._sfx.has(name):
+			_t.gt(float((a._sfx[name] as Array).size()), 1.0,
+				"'%s' has one variant, so a round robin cannot avoid a repeat" % name)
+
+	_t.ok(a._bed_shallow != null, "the shallow ambient bed did not load")
+	_t.ok(a._bed_deep != null, "the deep ambient bed did not load")
+	_t.ok(a._theme != null, "the theme did not load")
+	_t.gt(float(a._players.size()), 2.0,
+		"the one-shot pool is too small, so a repeated sound cuts its own tail off")
+
+	# **The mood arc is a crossfade on a gameplay quantity, and it has to have a
+	# real span.** Assert monotonicity across the actual depth range rather than
+	# trusting the formula.
+	_t.begin("smoke > the score crossfades on depth, with a real span")
+	main.sim.flight.pos = Vector2(0, 5.0)
+	for _i in range(120):
+		a.tick(main.sim, 0.1)
+	var shallow_top: float = a._bed_shallow.volume_db
+	var deep_top: float = a._bed_deep.volume_db
+	main.sim.flight.pos = Vector2(0, float(Tuning.CORE_DEPTH) - 5.0)
+	for _i in range(120):
+		a.tick(main.sim, 0.1)
+	_t.lt(a._bed_shallow.volume_db, shallow_top - 6.0,
+		"the shallow bed does not leave, and the layer that leaves does the work")
+	_t.gt(a._bed_deep.volume_db, deep_top + 6.0, "the deep bed never arrives")
+
+	# The reverb reads the light solver's own openness, so a cavern is enormous
+	# and a shaft is dry. One quantity, two uses.
+	_t.begin("smoke > the room sounds like the room it is")
+	var tight := Sim.new(77)
+	for d in range(-1, 40):
+		tight.world.fill[tight.world.idx(0, d)] = 0.0
+		tight.world.mat[tight.world.idx(0, d)] = Ore.AIR
+	tight.flight.pos = Vector2(0, 30.0)
+	for _i in range(200):
+		a.tick(tight, 0.1)
+	var dry: float = a._reverb.wet
+	for d in range(20, 42):
+		for x in range(-8, 9):
+			tight.world.fill[tight.world.idx(x, d)] = 0.0
+			tight.world.mat[tight.world.idx(x, d)] = Ore.AIR
+	for _i in range(200):
+		a.tick(tight, 0.1)
+	_t.gt(a._reverb.wet, dry + 0.05,
+		"opening a cavern around the ship did not open the reverb with it")
 
 
 func _count_wrong_layer(n: Node) -> int:

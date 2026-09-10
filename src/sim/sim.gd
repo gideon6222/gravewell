@@ -28,6 +28,7 @@ signal hull_hit(speed: float)
 signal uplinked(value: float, cost: float)
 signal descent_over(outcome: String)
 signal core_cut(seconds: float)
+signal drill_bite(hardness: float)
 signal collapsed(x: int, d: int)
 
 enum Phase { DESCENT, EXTRACTION, OVER, HOLD }
@@ -284,6 +285,9 @@ func _drill(c: Vector2i, dt: float) -> void:
 	if res["cut"] <= 0.0:
 		return
 	power -= float(res["cut"]) * Tuning.POWER_PER_HP
+	# The sound answers the WORK, not the button: it fires on hit points actually
+	# removed, so the deep sounds harder to cut because it is.
+	drill_bite.emit(Tuning.hardness_at(float(c.y)) * Classes.hardness_mult(world.class_id))
 	if not res["broke"]:
 		return
 
