@@ -57,6 +57,7 @@ var _last_cell := Vector2i(99999, 99999)
 var _hold: Hold
 var _audio: GameAudio
 var _post: ColorRect
+var _shell: Shell
 var _post_mat: ShaderMaterial
 var _in_hold := false
 var _drag_from := Vector2.ZERO
@@ -70,8 +71,35 @@ var _drilling := false
 var _booted := false
 var _frozen := false
 
+## Android system integration, all of it, in one place.
+##
+## `quit_on_go_back = false` is set in `project.godot` and this handler ships in
+## the SAME commit, because the setting alone makes the back button do nothing at
+## all. Both states are shippable and neither shows in a headless suite.
+##
+## The save also happens here rather than only on close, because
+## `WM_CLOSE_REQUEST` does not arrive on an Android back-out.
+func _notification(what: int) -> void:
+	match what:
+		NOTIFICATION_WM_GO_BACK_REQUEST:
+			if _shell != null:
+				_shell.go_back()
+		NOTIFICATION_APPLICATION_PAUSED, NOTIFICATION_WM_CLOSE_REQUEST:
+			# Home then resume returns to a PAUSED game, not a restarted one, and
+			# the progress is on disk before the app is anywhere near being killed.
+			if sim != null:
+				Save.write(sim)
+			if _shell != null and _shell.playing():
+				_shell.pause_game()
+		NOTIFICATION_APPLICATION_RESUMED:
+			pass
+
+
 func _ready() -> void:
 	_ensure_booted()
+	# Screen sleep is prevented during play. A game you look at for a minute
+	# without touching is a game that goes dark in your hand.
+	DisplayServer.screen_set_keep_on(true)
 	# Now that the node is in the tree the viewport exists, so the safe-area
 	# hook that could not be attached during a headless boot gets attached here.
 	var vp := get_viewport()
@@ -101,6 +129,12 @@ func _ensure_booted() -> void:
 func _build_audio() -> void:
 	_audio = GameAudio.new()
 	add_child(_audio)
+	_bind_audio()
+
+
+## Reconnected whenever `Sim` is replaced, because a signal connected to the old
+## one is a sound that stops happening with no error anywhere.
+func _bind_audio() -> void:
 	sim.drill_bite.connect(func(hardness): _audio.drill_bite(hardness))
 	sim.broke_cell.connect(func(x, d, m, v):
 		_audio.broke(m != Ore.ROCK, Classes.is_brittle(sim.world.class_id))
@@ -125,6 +159,8 @@ func _build_audio() -> void:
 ## Haptics: 10 to 30 ms at 0.3 to 0.6 amplitude. `permissions/vibrate` is set in
 ## both export presets or this silently does nothing.
 func _haptic(ms: int, amplitude: float) -> void:
+	if _shell != null and not _shell.haptics_on():
+		return
 	if OS.has_feature("mobile"):
 		Input.vibrate_handheld(ms, amplitude)
 
@@ -269,6 +305,16 @@ func _build_ui() -> void:
 	_hud = Hud.new()
 	_hud.setup(sim)
 	_ui.add_child(_hud)
+
+	_shell = Shell.new()
+	_shell.setup()
+	_ui.add_child(_shell)
+	_shell.start_new.connect(_on_new_game)
+	_shell.resume.connect(_on_resume)
+	_shell.erase.connect(_on_new_game)
+	# **Saved on every meaningful change**, not on a timer: a descent ending, a
+	# rung bought and a planet finished are the three moments progress moves.
+	sim.descent_over.connect(func(_why): Save.write(sim))
 	_hud._lamp_btn.pressed.connect(func(): sim.cycle_lamp())
 	_hud._uplink_btn.pressed.connect(func(): sim.uplink())
 	_hud._launch_btn.pressed.connect(func(): sim.launch())
@@ -341,7 +387,47 @@ func _process(delta: float) -> void:
 	_tick(delta)
 
 
+func _on_new_game() -> void:
+	Save._reset_latch_for_tests()
+	sim = Sim.new(1, Classes.CINDER)
+	_rebind()
+
+
+func _on_resume() -> void:
+	var loaded := Sim.new(1)
+	if Save.read(loaded):
+		sim = loaded
+	_rebind()
+
+
+## Everything that holds a reference to `Sim` is re-pointed in ONE place, so a
+## new game or a load cannot leave half the game reading the old one.
+func _rebind() -> void:
+	_terrain.setup(sim.world, _rock_mat)
+	_hud.sim = sim
+	_field.touch()
+	_terrain.touch()
+	_last_cell = Vector2i(99999, 99999)
+	_in_hold = false
+	if _hold != null:
+		_hold.sim = sim
+		_hold.visible = false
+	_cam.current = true
+	_terrain.visible = true
+	_haze.visible = true
+	_lamp.visible = true
+	_bind_audio()
+
+
 func _tick(dt: float) -> void:
+	# The title is a screen in front of the game, and the game is not running
+	# behind it: HOME is the level you are about to play with `advance` not being
+	# called, which is what makes it playable within ten seconds of the icon.
+	if _shell != null and not _shell.playing():
+		_hud.visible = false
+		return
+	_hud.visible = true
+
 	# The Hold is a different place, not a screen over this one. Nothing about
 	# the descent runs while the player is in it.
 	if sim.phase == Sim.Phase.HOLD:
@@ -503,6 +589,10 @@ func _on_hold_touch(at: Vector2, pressed: bool) -> void:
 	var id := _hold.pick(at)
 	if id != "" and sim.buy(id):
 		_hold.refresh()
+		_audio.click(true)
+		Save.write(sim)
+	elif id != "":
+		_audio.click(false)
 
 
 func _on_hold_drag(at: Vector2, relative: Vector2) -> void:

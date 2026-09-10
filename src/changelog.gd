@@ -9,9 +9,22 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.8.0"
+const VERSION := "0.9.0"
 
 const RELEASES := [
+	{
+		"version": "0.9.0",
+		"date": "2026-09-10",
+		"title": "A way in and a way out",
+		"notes": [
+			"A title screen over the live world, with CONTINUE greyed until you have a run.",
+			"Progress saves itself: when a descent ends, when you fit a part, when you put the phone down.",
+			"Settings live in their own file, so erasing progress never touches your volume.",
+			"The pause screen carries the version, the build and everything that changed.",
+			"The back button unwinds one screen at a time and never quits without asking.",
+			"An icon, a splash in the game's own dark, and the screen stays awake while you dig.",
+		],
+	},
 	{
 		"version": "0.8.0",
 		"date": "2026-09-10",

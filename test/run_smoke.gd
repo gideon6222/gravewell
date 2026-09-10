@@ -69,6 +69,7 @@ func _run(main) -> void:
 	_t.gt(main._hud._pad.get_global_rect().size.x, 100.0,
 		"the d-pad has no size, so the layout has not resolved and nothing below means anything")
 
+	_check_the_way_in(main)
 	_drive_a_descent(main)
 	_check_everything_that_exists_is_drawn(main)
 	_check_the_controls_are_anchored(main)
@@ -77,9 +78,80 @@ func _run(main) -> void:
 	_check_the_ship_is_a_real_machine(main)
 	_check_the_hold_is_a_place(main)
 	_check_the_game_makes_a_sound(main)
+	_check_the_back_button(main)
 
 	main.free()
 	_finish()
+
+
+## **Cross the title like a player, never through a bypass flag.**
+##
+## The title is the one screen in front of everything, so a suite that skips it
+## is a suite in which the title is the single path nothing covers. Every
+## assertion below goes through the same button a thumb would press.
+func _check_the_way_in(main) -> void:
+	_t.begin("smoke > the way in")
+	var shell: Shell = main._shell
+	_t.ok(shell != null, "there is no shell at all")
+	_t.eq(shell.screen, Shell.Screen.TITLE, "the game does not start at the title")
+	_t.eq(shell._title.visible, true, "the title is not drawn")
+
+	# CONTINUE is GREYED, not hidden, on a first run. An absent button tells a
+	# new player nothing; a greyed one says where their game will be.
+	Save.erase()
+	shell._show()
+	_t.eq(shell._continue.visible, true, "CONTINUE is hidden rather than greyed on a first run")
+	_t.eq(shell._continue._enabled, false, "CONTINUE is offered with no save")
+	_t.ok(shell._continue._note.contains("no run"), "CONTINUE is greyed without saying why")
+
+	# And the game is NOT running behind it: HOME is the level you are about to
+	# play with `advance` not being called.
+	var before: float = main.sim.flight.depth()
+	main.press_pad(Vector2(0, 1))
+	main.advance(2.0)
+	_t.approx(main.sim.flight.depth(), before, 0.001,
+		"the game plays behind the title screen")
+
+	# NEW GAME, through the button.
+	Save._reset_latch_for_tests()
+	shell._new.pressed.emit()
+	main.advance(0.1)
+	_t.eq(shell.screen, Shell.Screen.PLAYING, "NEW GAME did not start the game")
+	_t.eq(shell._title.visible, false, "the title is still drawn over the game")
+
+
+## **The back button unwinds one layer per press and never quits.** Both halves
+## in the same commit: the setting alone is a dead system button.
+func _check_the_back_button(main) -> void:
+	_t.begin("smoke > the back button unwinds one layer at a time")
+	var shell: Shell = main._shell
+	shell.screen = Shell.Screen.PLAYING
+	shell._show()
+
+	main._notification(main.NOTIFICATION_WM_GO_BACK_REQUEST)
+	_t.eq(shell.screen, Shell.Screen.PAUSED, "back in play did not pause")
+	_t.eq(shell._pause.visible, true, "the pause sheet is not drawn")
+
+	main._notification(main.NOTIFICATION_WM_GO_BACK_REQUEST)
+	_t.ok(shell.screen != Shell.Screen.PAUSED, "back in the pause sheet did not leave it")
+
+	# It never quits on its own from the outermost layer either.
+	shell.screen = Shell.Screen.TITLE
+	shell._show()
+	main._notification(main.NOTIFICATION_WM_GO_BACK_REQUEST)
+	_t.eq(shell.screen, Shell.Screen.TITLE, "back at the title did something unexpected")
+
+	_t.begin("smoke > home then resume returns to a paused game")
+	shell.screen = Shell.Screen.PLAYING
+	shell._show()
+	main.sim.credits = 777.0
+	main._notification(main.NOTIFICATION_APPLICATION_PAUSED)
+	_t.eq(shell.screen, Shell.Screen.PAUSED, "backgrounding the app did not pause it")
+	_t.ok(Save.exists(), "backgrounding the app did not save")
+
+	# And the pause sheet says which build this is, which he asked for by name.
+	_t.gt(float(Changelog.VERSION.length()), 2.0, "there is no version to show")
+	_t.gt(float(Changelog.RELEASES.size()), 1.0, "there are no patch notes to show")
 
 
 ## Drive it the way a thumb does, through the input handler, not by writing the
