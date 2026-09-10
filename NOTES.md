@@ -525,3 +525,71 @@ expensive half succeeded and the useful half never ran.
 That is the third script in this repo with the same bug, after `new-game.ps1` and
 `check.ps1`. All three now route native calls through one `Native` helper. Fixed
 in the template too.
+
+## 0.9.1: the lamp points where you are going (2026-09-10)
+
+His note, verbatim: *"the light seems to be coming from the back of the ship in a
+small beam. I would like you to do something similar to coreward, where forward
+light creates a dispersed beam, but also fills the rest of the tunnel behind. as
+you pass corners, it should create shadows. the air should start looking thick in
+the tunnels. there should he a secondary light source that shows on the face of
+the rocks when the ship is near them."*
+
+Five mechanisms named in one sentence, restated from scratch rather than as a
+tuning note, so the model was rebuilt rather than adjusted.
+
+### The model now: three named terms per surface, combined with `max()`
+
+Rock (`rock.gdshader`) and air (`haze.gdshader`) share `lamp_dir`, `cone_lo`,
+`cone_hi`, `lamp_reach` and `density`, so the beam you see in the tunnel and the
+pool it lands in are one lamp. The smoke run asserts that.
+
+| Term | Reach | Direction | What it is for |
+|---|---|---|---|
+| BEAM | `lamp_reach / (1 + density * 0.35)` | the drill, squared cone | the dispersed forward beam |
+| PROX (rock only) | 0.34x | none at all | *his* second light: the face you are beside |
+| WASH (rock only) | 1.6x, weak, rides the spill | none | the tunnel behind stays readable |
+| FILL (air only) | 1.05x, weak | none | the lit shaft that is the way home |
+| SHADOW (air only) | the fan | per bearing | the wedge a corner throws |
+| THICK (air only) | — | — | scatter and drifting grit, both scaling with density |
+
+**`max()` of the terms, never a product.** Multiplying two floors lands anything
+that is dim for two reasons on the product, which is black, and the thing it
+blacks out is the shaft the player came down.
+
+**Each term gets its OWN falloff.** Sharing the beam's pool makes the glow behind
+the player stop exactly where the beam does, with the same hard edge, which is
+the one thing the soft half must not do.
+
+### Corrections, all measured on a screenshot rather than argued
+
+9. **A lighting complaint is about a RATIO.** The beam was fine. The air *behind*
+   the ship measured 150 of 255 against 103 for the rock the beam was pointing
+   at, so the brightest thing on screen was behind him. Sampling the PNG at fixed
+   points ahead and behind turned "better" into a number that survives a round.
+   It now sits at roughly 100 ahead / 25 behind / 50 in the shaft: a 3-4:1
+   forward ratio reads as directional while leaving the way home visible. At 6:1
+   the tunnel behind went black, at 1.65:1 there was no direction at all.
+10. **Isolate a shader term by REPLACING it, not by reading it.** Two frames with
+    `flood -> 1.0` and `shadow -> 1.0` said in one pass that a black stretch of
+    shaft was the shadow term. A headless probe then said the shadow was correct:
+    the column above the ship was open for four cells and then ceiling. The fault
+    was in the mental model of the geometry. `debug_term` is now a permanent
+    uniform because this file was hand-patched twice in one session for want of
+    it.
+11. **The fan is cast and decoded with ONE number.** It was cast to `reach * 1.8`
+    and decoded in the shader against `reach`, so every shadow began at 55% of
+    its true distance. `Tuning.FAN_REACH_MULT`, and the smoke run asserts the
+    uniform equals what the cast used. Third instance in this repo of one
+    quantity written down twice.
+12. **A title screen blinds every screenshot script written before it.** `_tick`
+    returns while the shell is not playing, on purpose, so `freeze()` +
+    `advance()` advanced nothing and captured the menu — exit 0, no error, a
+    photograph of the title filed as evidence about tunnel lighting.
+    `main.start_run()` -> `shell.begin_new()` is now the one way in, and it is
+    the method the NEW GAME button calls.
+13. **Straight down a shaft is the one scene where none of this can be judged**,
+    because the only open air is behind the ship and no corner is in frame.
+    `scripts/shot_light.gd` cuts a real junction and flies past it, and stage 4
+    climbs clear and turns back down so there is open shaft in both directions at
+    once. `build/junction.png`, `build/beam.png`, `build/deep.png`.

@@ -496,20 +496,36 @@ func _redraw_world() -> void:
 	_field.refresh(sim.world, cell)
 
 	var reach := sim.lamp_reach()
-	_field.refresh_fan(sim.world, sim.flight.pos, reach * 1.8)
+	# **One number for the fan's range, cast and decoded with the same value.**
+	# It was cast to 1.8x the lamp reach and decoded with 1x, so every shadow
+	# began at 55% of its true distance and the lit pool was cut short in every
+	# direction. That is the same shape of fault as two thresholds for "gone",
+	# so the multiplier lives in Tuning and the smoke run asserts that what the
+	# fan was cast to is what the shader was handed.
+	var fan_reach := reach * Tuning.FAN_REACH_MULT
+	_field.refresh_fan(sim.world, sim.flight.pos, fan_reach)
 
 	var density := Tuning.density_at(sim.flight.depth())
 	var origin := _field.origin_world()
 	var h := sim.flight.heading
-	var cone: float = cos(Tuning.LAMP_CONE[sim.lamp_mode] * 0.5)
+
+	# The lamp MODE changes the beam's shape, not just its reach: the flood is
+	# wide and short, the lance is narrow and long, and dark is barely there.
+	# The angular profile is shared by the air and the rock so the beam in the
+	# tunnel and the pool it lands in are one light.
+	var half: float = Tuning.LAMP_CONE[sim.lamp_mode] * 0.5
+	var cone_hi: float = cos(clampf(half * 0.45, 0.05, 1.5))
+	var cone_lo: float = cos(clampf(half * 1.25, 0.1, 3.0))
 
 	for m in [_rock_mat, _haze_mat]:
 		m.set_shader_parameter("field_origin", origin)
 		m.set_shader_parameter("lamp_pos", sim.flight.pos)
 		m.set_shader_parameter("lamp_dir", h)
 		m.set_shader_parameter("lamp_reach", reach)
-		m.set_shader_parameter("lamp_cos", cone)
+		m.set_shader_parameter("cone_lo", cone_lo)
+		m.set_shader_parameter("cone_hi", cone_hi)
 		m.set_shader_parameter("density", density)
+	_haze_mat.set_shader_parameter("fan_reach", fan_reach)
 	_haze_mat.set_shader_parameter("fan", _field.fan_texture)
 
 	_haze.position = Vector3(sim.flight.pos.x, DEPTH_SIGN * sim.flight.pos.y, HAZE_Z)
@@ -614,6 +630,20 @@ func _on_hold_drag(at: Vector2, relative: Vector2) -> void:
 func freeze() -> void:
 	_ensure_booted()
 	_frozen = true
+
+
+## Get past the title, the way NEW GAME does.
+##
+## `_tick` returns immediately while the shell is not playing, on purpose: the
+## title is a screen in FRONT of the game and the game is not running behind it.
+## That means a harness that only calls `freeze()` and `advance()` advances
+## nothing at all and captures the title. Every shot script here was written
+## before the shell existed, and the first lighting screenshot after it landed
+## was a picture of the menu.
+func start_run() -> void:
+	_ensure_booted()
+	if _shell != null and not _shell.playing():
+		_shell.begin_new()
 
 
 func advance(seconds: float, step: float = 1.0 / 60.0) -> void:

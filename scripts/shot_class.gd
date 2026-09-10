@@ -18,6 +18,7 @@ func _initialize() -> void:
 	_main = load("res://src/game/main.tscn").instantiate()
 	root.add_child(_main)
 	_main.freeze()
+	_main.start_run()
 
 func _process(_delta: float) -> bool:
 	_frames += 1

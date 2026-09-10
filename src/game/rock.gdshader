@@ -45,7 +45,20 @@ uniform float field_radius;    // (field_side - 1) / 2
 uniform vec2 lamp_pos;         // world (x, y)
 uniform vec2 lamp_dir;         // unit, the way the drill points
 uniform float lamp_reach;
-uniform float lamp_cos;        // cosine of the half-angle of the beam
+// The beam's angular profile, shared with the air term so the light in the
+// tunnel and the pool it lands in are one light.
+uniform float cone_lo = -0.35;
+uniform float cone_hi = 0.75;
+uniform float beam_floor : hint_range(0.0, 0.6) = 0.06;
+
+// The second light: proximity on the rock face, with no direction at all.
+uniform float prox_reach_mult : hint_range(0.1, 2.0) = 0.34;
+uniform float prox_gain : hint_range(0.0, 2.0) = 0.42;
+
+// The third term: the tunnel BEHIND, on the propagated spill alone. Long,
+// direction-free, and very weak.
+uniform float wash_reach_mult : hint_range(0.1, 4.0) = 1.6;
+uniform float wash_gain : hint_range(0.0, 1.0) = 0.26;
 uniform float ambient_floor : hint_range(0.0, 1.0) = 0.035;
 uniform float density = 0.05;  // the air, which eats the far end of the light
 
@@ -85,29 +98,50 @@ void fragment() {
 
 	vec2 away = p - lamp_pos;
 	float dist = length(away);
-
-	// Distance falloff, per pixel from the lamp's exact position. Dense air eats
-	// the far end of it, which is the same number that thickens the fog and
-	// shortens the reach, so the picture and the rules cannot disagree.
-	float reach = lamp_reach / (1.0 + density * 0.45);
-	float falloff = clamp(1.0 - dist / max(reach, 0.001), 0.0, 1.0);
-
-	// The beam. A soft shoulder rather than a hard cone edge, and a generous
-	// floor, because a surface is lit by being NEAR a lit space and the space
-	// beside the ship is lit whichever way the drill happens to point. A tight
-	// floor here makes the tunnel behind the ship vanish, which is the way home.
 	vec2 to = dist > 0.0001 ? away / dist : lamp_dir;
-	float beam = smoothstep(lamp_cos - 0.35, lamp_cos + 0.12, dot(to, lamp_dir));
-	beam = mix(0.55, 1.0, beam);
+	float forward = dot(to, lamp_dir);
 
-	// The soft, omnidirectional half gets its OWN falloff: longer reach, much
-	// gentler curve. Sharing the beam's pool makes the glow behind the player
-	// end exactly where the beam does, with the same hard edge, which is the one
-	// thing the soft half must not do. Combined with max(), never by multiplying
-	// two floors: multiplying "survives behind the player" by "survives in
-	// shadow" lands anywhere that is both on the product, which is black.
-	float soft = clamp(1.0 - dist / max(reach * 1.7, 0.001), 0.0, 1.0);
-	float lit = max(f.g * falloff * beam, f.g * soft * 0.55);
+	// ── the BEAM on the rock ──────────────────────────────────────────────
+	// Dispersed, matching the air term's cone so the beam you can see in the
+	// tunnel and the pool it lands in are one light rather than two that have to
+	// be kept in agreement by hand.
+	float reach = lamp_reach / (1.0 + density * 0.35);
+	float cone = smoothstep(cone_lo, cone_hi, forward);
+	cone *= cone;
+	float beam_fall = clamp(1.0 - dist / max(reach, 0.001), 0.0, 1.0);
+	float lit_beam = f.g * mix(beam_floor, 1.0, cone) * beam_fall;
+
+	// ── the SECOND light: proximity on the rock face ──────────────────────
+	//
+	// His ask, verbatim: "there should be a secondary light source that shows on
+	// the face of the rocks when the ship is near them."
+	//
+	// **It has no direction at all.** That is the whole point of it: a wall
+	// beside the ship is lit because the ship is beside it, not because the
+	// drill happens to be pointing that way. Sharing the beam's direction is
+	// what made every surface in the game brighten and dim as the player turned,
+	// which reads as the world flickering rather than as a lamp moving.
+	//
+	// Its own falloff, much shorter and much softer, and combined with `max()`
+	// rather than multiplied: multiplying two floors lands anywhere that is both
+	// on the product, which is black.
+	float prox = clamp(1.0 - dist / max(reach * prox_reach_mult, 0.001), 0.0, 1.0);
+	prox *= prox;
+	float lit_prox = f.g * prox * prox_gain;
+
+	// ── the WASH: the rest of the tunnel behind ───────────────────────────
+	// The second light is a NEAR light: a third of the lamp's reach, so it only
+	// touches walls the ship is beside. That left everything further back on the
+	// beam's floor alone, and the shaft the player came down went black, which
+	// throws away the way home. This is what keeps it readable, and it rides the
+	// propagated spill `f.g` rather than raw distance, so it only reaches faces
+	// the light could actually have got to.
+	float wash = clamp(1.0 - dist / max(reach * wash_reach_mult, 0.001), 0.0, 1.0);
+	float lit_wash = f.g * wash * wash_gain;
+
+	// `max()` of three, never a product. Multiplying floors lands anywhere that
+	// is dim for two reasons on the product, which is black.
+	float lit = max(max(lit_beam, lit_prox), lit_wash);
 
 	// A lighting multiplier is linear and then sRGB-encoded, so its dark end
 	// lifts. Squaring it puts the darkness back where it was aimed. Squared

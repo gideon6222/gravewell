@@ -12,14 +12,13 @@ func _initialize() -> void:
 	_main = load("res://src/game/main.tscn").instantiate()
 	root.add_child(_main)
 	_main.freeze()
+	_main.start_run()
 
 func _process(_delta: float) -> bool:
 	_frames += 1
 	if _frames < 4:
 		return false
 	if _frames == 4:
-		_main._shell.screen = Shell.Screen.PLAYING
-		_main._shell._show()
 		var sim: Sim = _main.sim
 		var cd := sim.world.core_depth()
 		# Cut the shaft the player would have dug, so there is a real route out.

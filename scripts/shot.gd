@@ -40,6 +40,7 @@ func _initialize() -> void:
 	_main = scene.instantiate()
 	root.add_child(_main)
 	_main.freeze()
+	_main.start_run()
 
 	# Play it, do not watch it: drive the real pad through the same seam a thumb
 	# uses, so the drawing paths that only fire while digging actually run.

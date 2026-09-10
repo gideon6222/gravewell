@@ -78,6 +78,7 @@ func _run(main) -> void:
 	_check_the_ship_is_a_real_machine(main)
 	_check_the_hold_is_a_place(main)
 	_check_the_game_makes_a_sound(main)
+	_check_the_lamp_is_one_light(main)
 	_check_the_back_button(main)
 
 	main.free()
@@ -118,6 +119,42 @@ func _check_the_way_in(main) -> void:
 	main.advance(0.1)
 	_t.eq(shell.screen, Shell.Screen.PLAYING, "NEW GAME did not start the game")
 	_t.eq(shell._title.visible, false, "the title is still drawn over the game")
+
+
+## **The air and the rock are lit by ONE lamp, and the fan is cast and decoded
+## with one number.**
+##
+## Three separate quantities have to agree between the sim, `main.gd` and two
+## shaders, and none of them shows up in a picture as anything more specific than
+## "the tunnel looks wrong". The one that actually shipped broken: the fan was
+## cast to `reach * 1.8` and the shader decoded it against `reach`, so every
+## shadow began at 55% of its true distance. That is the third instance in this
+## repo of one quantity written down twice, so it gets an assertion on the
+## derived value rather than a comment asking the next person to be careful.
+func _check_the_lamp_is_one_light(main) -> void:
+	_t.begin("smoke > the lamp is one light")
+	var rock: ShaderMaterial = main._rock_mat
+	var haze: ShaderMaterial = main._haze_mat
+	var reach: float = main.sim.lamp_reach()
+
+	_t.approx(float(rock.get_shader_parameter("lamp_reach")), reach, 1e-3,
+		"the rock is lit to a different reach than the lamp has")
+	_t.approx(float(haze.get_shader_parameter("lamp_reach")), reach, 1e-3,
+		"the air is lit to a different reach than the rock")
+
+	# The fan, at both ends.
+	_t.approx(float(haze.get_shader_parameter("fan_reach")), reach * Tuning.FAN_REACH_MULT,
+		1e-3, "the shader decodes the fan against a different range than it was cast to")
+
+	# The angular profile is SHARED, so the beam in the air and the pool it lands
+	# in are one light and not two kept in agreement by hand.
+	for k in ["cone_lo", "cone_hi", "density", "lamp_dir"]:
+		_t.eq(str(rock.get_shader_parameter(k)), str(haze.get_shader_parameter(k)),
+			"the rock and the air disagree about %s, so they are two lamps" % k)
+
+	# And the diagnostic is off in the shipped picture.
+	_t.eq(int(haze.get_shader_parameter("debug_term")), 0,
+		"the air is rendering a debug term instead of the game")
 
 
 ## **The back button unwinds one layer per press and never quits.** Both halves

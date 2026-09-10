@@ -91,10 +91,7 @@ func _build_title() -> void:
 	_new = Hud.PlateButton.new()
 	_new.setup("NEW GAME", _face, _mono)
 	_place(_new, _title, -290.0)
-	_new.pressed.connect(func():
-		screen = Screen.PLAYING
-		_show()
-		start_new.emit())
+	_new.pressed.connect(begin_new)
 
 	var settings := Hud.PlateButton.new()
 	settings.setup("SETTINGS", _face, _mono)
@@ -152,6 +149,19 @@ func pause_game() -> void:
 
 func playing() -> bool:
 	return screen == Screen.PLAYING
+
+
+## What NEW GAME does, as a method rather than as a closure on a button.
+##
+## A filmed run and a screenshot have to get past the title the same way a thumb
+## does. When this only existed inside the button's lambda, the only way in was
+## `_new.pressed.emit()`, so the shot scripts written before the shell simply
+## never got in: `light_a.png` is a photograph of the title screen filed as
+## evidence about tunnel lighting.
+func begin_new() -> void:
+	screen = Screen.PLAYING
+	_show()
+	start_new.emit()
 
 
 ## **Unwind ONE layer per press, and never quit without asking.** This is what

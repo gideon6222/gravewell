@@ -9,9 +9,21 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.9.0"
+const VERSION := "0.9.1"
 
 const RELEASES := [
+	{
+		"version": "0.9.1",
+		"date": "2026-09-10",
+		"title": "The lamp points where you are going",
+		"notes": [
+			"The lamp throws a wide, soft beam ahead of the drill instead of a hard cone.",
+			"Behind you the tunnel stays lit, dimmer and edgeless, so the way home never goes black.",
+			"A second, shorter light with no direction picks out the rock face whenever you are beside it.",
+			"Pass a side branch and its corner throws a wedge of shadow down the passage.",
+			"The air thickens as you descend: the beam gets shorter, brighter and full of drifting grit.",
+		],
+	},
 	{
 		"version": "0.9.0",
 		"date": "2026-09-10",

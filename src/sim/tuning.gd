@@ -154,6 +154,18 @@ const LAMP_DRAIN: Array[float] = [0.20, 0.55, -0.10]
 const LAMP_REACH: Array[float] = [7.0, 15.0, 1.2]     ## m
 const LAMP_CONE: Array[float] = [2.4, 0.55, 3.0]      ## radians of full beam width
 
+## How far past the lamp's own reach the shadow fan is cast, as a multiple of it.
+##
+## Longer than the light on purpose: a corner five metres beyond the last lit
+## pixel still has to be in the fan, or the wedge it throws pops into existence
+## as the ship drifts toward it.
+##
+## **It is here, once, because it is used at both ends.** The fan was cast to
+## 1.8x and decoded in the shader with 1x, so every shadow began at 55% of its
+## true distance. Two numbers for one quantity, which is the same fault as two
+## thresholds for "gone", twice before in this repo.
+const FAN_REACH_MULT := 1.8
+
 ## Power low dims the lamp, so being in trouble looks like the world closing in
 ## rather than like a number turning red. PLAN.md addition 2.
 const LAMP_FADE_START := 0.30     ## fraction of POWER_MAX below which reach falls

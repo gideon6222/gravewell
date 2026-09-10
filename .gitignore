@@ -2,12 +2,18 @@
 .godot/
 .import/
 
-# Export output.
-build/
+# Export output, screenshots, check logs and filmed frames.
+#
+# **`build/*`, not `build/`.** `build/` ignores the directory itself, and once a
+# directory is ignored git will not descend into it, so a `!build/.gdignore`
+# negation under it can never match — which is why the negation was written as
+# `!build/` re-including the whole directory instead. That silently made every
+# output file trackable again, and one `git add -A` staged 3,905 of them.
+# `build/*` ignores the CONTENTS, which leaves the negation able to fire.
+build/*
 # ...except the marker that stops Godot importing and EXPORTING what films
 # and exports leave in there. Without it the exporter packed 3,720 filmed PNG
 # frames into the APK and it came out at 1.42 GB against a 28 MB budget.
-!build/
 !build/.gdignore
 *.apk
 *.aab

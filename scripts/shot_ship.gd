@@ -11,13 +11,13 @@ func _initialize() -> void:
 	_main = load("res://src/game/main.tscn").instantiate()
 	root.add_child(_main)
 	_main.freeze()
+	_main.start_run()
 
 func _process(_delta: float) -> bool:
 	_frames += 1
 	if _frames < 4:
 		return false
 	if _frames == 4:
-		_main._shell._new.pressed.emit()
 		var p := Policies.new(9)
 		var step := 1.0 / 60.0
 		for _i in int(52.0 / step):
