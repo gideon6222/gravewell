@@ -488,3 +488,40 @@ gesture, home and resume, and haptics actually firing. Every one of those is a
 structural assertion in the smoke test and a guess until the device says
 otherwise. **This is the one part of phase one that cannot be finished without
 the phone plugged in.**
+
+### The second film, with the title crossed like a player
+
+`build/movie/first-minute/sheet.png`, 64 seconds, one tile a second, starting at
+the title and tapping NEW GAME the way a thumb would.
+
+What it shows that the stills cannot:
+
+- **The tunnel bends and the light bends with it.** Two direction changes at 10 s
+  and 15 s, and the lit shaft follows the zigzag exactly. This is the whole of
+  what he asked for in Coreward and it is only legible as a sequence.
+- **The lamp pool shrinks as the air thickens.** Not scripted anywhere: it falls
+  out of `density_at` feeding the reach, and it reads.
+- **The Line announces itself.** "HEAT BELOW" appears in the state line a band
+  early, then the manifest opens over it.
+
+The middle stretch, tiles 30 to 55, is very dark: the ship is a small lit point
+in a black field. **That is his brief rather than a fault** - "make shadows and
+darkness denser. I want it hard to see blocks that are far away and almost black
+toward the edge of the screen, so it feels like we are only zoomed in because we
+cant see any further out" - and the picture matches it closely.
+
+**So the problem in that stretch is not the darkness, it is that there is nothing
+to decide in it.** Recording it precisely matters, because the obvious reaction
+to a dark boring stretch is to brighten it, and brightening it would throw away
+the thing he liked to fix a thing he did not complain about.
+
+### A third script with the same fault
+
+`movie.ps1` rendered all 3,840 frames and then died before tiling a single one,
+because Godot's Movie Maker prints a shutdown warning to stderr and
+`$ErrorActionPreference = 'Stop'` turns that into a terminating error. The
+expensive half succeeded and the useful half never ran.
+
+That is the third script in this repo with the same bug, after `new-game.ps1` and
+`check.ps1`. All three now route native calls through one `Native` helper. Fixed
+in the template too.
