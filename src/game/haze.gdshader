@@ -58,6 +58,17 @@ uniform float field_radius;
 // One number, passed in, used at both ends.
 uniform sampler2D fan : filter_linear, source_color, hint_default_white;
 uniform float fan_reach = 12.0;
+// One texel of the fan in u, so the filter below is stated in RAYS rather than
+// in a magic fraction, and changing `Light.RAYS` cannot silently retune it.
+uniform float fan_texel = 0.00390625;   // 1.0 / 256.0
+
+// Taps either side of the bearing, and how wide a tap is in rays. All three come
+// from `Light`, which runs the same arithmetic in `shadow_at` so a headless test
+// can assert what this will draw. Five taps in total, which is Godot's own
+// smaller 2D shadow filter (PCF5).
+const int PCF = 2;
+uniform float pcf_near = 0.6;
+uniform float pcf_per_m = 0.30;
 
 uniform vec2 lamp_pos;
 uniform vec2 lamp_dir;
@@ -168,20 +179,40 @@ void fragment() {
 	float forward = dot(to, lamp_dir);
 
 	// ── SHADOW: what a corner throws ──────────────────────────────────────
-	// Sampled the way the fan was built: the bearing indexes the texture and
-	// linear filtering blends the two nearest rays, which is what the headless
-	// test reproduces when it asserts the lit-face fraction.
+	// **Filter the OUTCOME across bearings, never the stored distance.**
+	//
+	// His report: "there appears to be multiple separate beams when using the
+	// light on certain settings rather than a glow that extends from the front
+	// of the ship." That starburst is this lookup. A single tap with linear
+	// filtering blends the two nearest rays' DISTANCES, and two adjacent rays
+	// that hit different occluders store wildly different distances, so the blend
+	// lands somewhere neither of them says and the boundary comes out as a hard
+	// wedge. 0.9.2 made it worse by giving the ambient a shadow too, which put
+	// the wedges in every direction at once rather than only inside the beam.
+	//
+	// The fix is percentage-closer filtering over neighbouring bearings, which is
+	// what Godot's own 2D shadows do: compare this pixel's distance against each
+	// of several stored rays and average the LIT-or-NOT answers. Raising the ray
+	// count is explicitly not the fix - the reference writeup reports 360 rays
+	// still looking jittery - and it is the most expensive option on a mobile
+	// GPU, where these taps are nearly free.
 	float ang = atan(away.y, away.x);
 	float fan_u = fract(ang / 6.2831853 + 1.0);
-	float occ = texture(fan, vec2(fan_u, 0.5)).r * fan_reach;
-	// A soft edge rather than a step: a hard binary shadow on a 1080-wide phone
-	// aliases into a staircase along every wedge.
-	// The soft edge WIDENS with distance. A fixed 0.30 m band is a crisp line at
-	// ten metres, where the fan's own angular resolution is coarser than the
-	// line it is drawing, so the wedge aliases into a staircase; and a crisp
-	// wedge in fog is a cut rather than a shadow.
+	// The soft edge WIDENS with distance, because far out the fan's own angular
+	// resolution is coarser than the line it is drawing, and a crisp wedge in fog
+	// is a cut rather than a shadow.
 	float edge = 0.25 + dist * 0.12;
-	float shadow = 1.0 - smoothstep(occ - edge, occ + edge, dist);
+	// The spread grows with distance too: at arm's length the neighbouring rays
+	// are describing the same wall and a wide filter would smear it, while ten
+	// metres out they are the only thing between a wedge and a staircase.
+	float spread = fan_texel * (pcf_near + dist * pcf_per_m);
+	float shadow = 0.0;
+	for (int i = -PCF; i <= PCF; i++) {
+		float u = fract(fan_u + float(i) * spread + 1.0);
+		float occ_i = texture(fan, vec2(u, 0.5)).r * fan_reach;
+		shadow += 1.0 - smoothstep(occ_i - edge, occ_i + edge, dist);
+	}
+	shadow /= float(PCF * 2 + 1);
 
 	// ── AMBIENT: the whole tunnel, everywhere the light got to ────────────
 	// No distance term at all. `flood` is the distance term, and it measures the

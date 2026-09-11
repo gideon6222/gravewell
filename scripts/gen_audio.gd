@@ -64,8 +64,47 @@ func _initialize() -> void:
 	_write("bed_shallow.wav", _bed(0.0))
 	_write("bed_deep.wav", _bed(1.0))
 	_write("theme.wav", _theme())
+	_write("drill.wav", _grind())
 	print("audio written to %s" % OUT)
 	quit(0)
+
+
+## **The drill, as a seamless loop rather than a shot per bite.**
+##
+## Generated rather than sampled, because this one has to answer the game: its
+## pitch and volume are driven every frame by how hard the material is, and a
+## recorded drill has its own pitch baked in and fights the modulation.
+##
+## Three layers, which is what makes it read as a machine cutting rock rather
+## than as noise: a low motor tone with a slight beat in it, a band of grinding
+## noise that the player hears as the bit meeting the face, and a slow irregular
+## catch that keeps it from being a synthesiser drone. Deterministic, seeded, and
+## cross-faded at the seam like everything else here.
+func _grind() -> PackedFloat32Array:
+	var n := int(RATE * 2.0)
+	var out := PackedFloat32Array()
+	out.resize(n)
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 90210
+	# One-pole state for the noise band, so the hiss has a body rather than
+	# being white and thin.
+	var lp := 0.0
+	var hp := 0.0
+	for i in range(n):
+		var t := float(i) / float(RATE)
+		# The motor: two close tones, so they beat against each other slowly.
+		var motor := sin(TAU * 78.0 * t) * 0.5 + sin(TAU * 81.5 * t) * 0.42
+		# The bit on the face.
+		var raw := rng.randf_range(-1.0, 1.0)
+		lp = lp + (raw - lp) * 0.22
+		hp = lp - hp * 0.04
+		var grind := hp * 0.85
+		# The catch: a slow wobble on the whole thing, at a rate that does not
+		# divide into the loop, so the repeat is hard to hear.
+		var wobble := 0.82 + 0.18 * sin(TAU * 3.7 * t) * sin(TAU * 1.3 * t)
+		out[i] = clampf((motor * 0.30 + grind * 0.70) * wobble * 0.55, -1.0, 1.0)
+	_fade_loop(out)
+	return out
 
 
 ## The ambient bed: a drone, filtered air, and a slow swell. `deep` moves it from

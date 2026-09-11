@@ -20,6 +20,20 @@ static func smooth(rate: float, dt: float) -> float:
 	return 1.0 - exp(-rate * dt)
 
 
+## Distance from a point to the SEGMENT a-b, not to the infinite line.
+##
+## The drill brush is swept along the path the ship actually travelled in a tick,
+## so that it cannot skip a thin wall at a low frame rate. A line would carve
+## ahead of the ship and behind it forever; the clamp is what makes it a capsule.
+static func point_to_segment(p: Vector2, a: Vector2, b: Vector2) -> float:
+	var ab := b - a
+	var len2 := ab.length_squared()
+	if len2 < 1.0e-12:
+		return p.distance_to(a)
+	var t := clampf((p - a).dot(ab) / len2, 0.0, 1.0)
+	return p.distance_to(a + ab * t)
+
+
 ## 32-bit multiply. GDScript ints are 64-bit, so a plain `*` does not wrap the
 ## way the mixing steps below assume; masking after each one does.
 static func imul(a: int, b: int) -> int:

@@ -48,6 +48,7 @@ var _lamp_btn: PlateButton
 var _uplink_btn: PlateButton
 var _manifest: ManifestSheet
 var _launch_btn: PlateButton
+var _pause_btn: PlateButton
 var _hold_hint: Label
 var _touch: TouchLayer
 
@@ -181,6 +182,30 @@ func _build_controls() -> void:
 	_lamp_btn.setup("FLOOD", _face, _mono)
 	_place_button(_lamp_btn, -256.0, -228.0)
 
+	# **A pause the thumb can find.** His ask: "can you also add a pause button?"
+	#
+	# The back gesture opened the sheet already, and on a phone with gesture
+	# navigation a back SWIPE is not a control anyone discovers - `POLISH.md`
+	# wants pause reachable without a system gesture, and this is why.
+	#
+	# **Down the left edge, under the gauges.** The top row is already three
+	# readouts wide - the bank on the left, the depth in the middle, the hold on
+	# the right - and the first placement put this straight on top of the credits
+	# line, which the screenshot showed immediately.
+	#
+	# Here it is diagonally opposite the d-pad, on the side the driving thumb is
+	# not, and far enough down that a hand reaching for it covers nothing that is
+	# changing. Small, because it is not a control anyone needs to find in a
+	# hurry: the run pauses itself when the phone does.
+	_pause_btn = PlateButton.new()
+	_pause_btn.setup("PAUSE", _face, _mono)
+	_pause_btn.set_anchors_preset(Control.PRESET_TOP_LEFT)
+	_pause_btn.offset_left = 22.0
+	_pause_btn.offset_right = 22.0 + 152.0
+	_pause_btn.offset_top = 196.0
+	_pause_btn.offset_bottom = 196.0 + 88.0
+	add_child(_pause_btn)
+
 
 func _place_button(b: PlateButton, from_right: float, from_bottom: float) -> void:
 	b.set_anchors_preset(Control.PRESET_BOTTOM_RIGHT)
@@ -240,7 +265,7 @@ func tick(dt: float) -> void:
 	_touch.visible = in_hold
 	_launch_btn.visible = in_hold
 	_hold_hint.visible = in_hold
-	for c in [_depth, _power, _hull, _load_btn, _rate, _state, _pad, _lamp_btn, _uplink_btn]:
+	for c in [_depth, _power, _hull, _load_btn, _rate, _state, _pad, _lamp_btn, _uplink_btn, _pause_btn]:
 		c.visible = not in_hold
 	if in_hold:
 		_bank.text = "%s cr   %d fil   %d/7 cores" % [

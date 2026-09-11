@@ -75,6 +75,14 @@ var drops: Array[Dictionary] = []
 var deepest: float = 0.0
 var descents: int = 0
 
+## **How hard the work looks right now, 0 to 1, and zero when not drilling.**
+##
+## One number, read by the particles, the drill loop, the haptics and the camera
+## shake, so they cannot disagree about whether this is fluffy dirt or something
+## that is taking real effort. His ask: "the particles or effects will sell that
+## something is taking a lot more work, or easy fluffy dirt."
+var dig_load: float = 0.0
+
 ## The extraction. `rising` is the depth the world has died up to: everything
 ## below it is gone, and when it reaches the ship the run is over.
 var extract_left: float = 0.0
@@ -233,12 +241,22 @@ func step(dir: Vector2, drilling: bool, dt: float) -> void:
 	var d := flight.depth()
 	var density := Tuning.density_at(d)
 
-	# Is the drill engaged on the face the hull is against? If it is, the
-	# collision is the drill doing its job and it costs nothing. If it is not,
-	# the ship hit rock it was not cutting and that is what hurts.
+	# Is the drill engaged? If it is, the collision is the drill doing its job
+	# and it costs nothing. If it is not, the ship hit rock it was not cutting
+	# and that is what hurts.
 	var held := dir.length_squared() > 0.001
-	var target := flight.drill_target(dir)
-	var drill_engaged := drilling and held and not Flight.no_target(target)
+	var drill_engaged := drilling and held
+
+	# **The plow's speed is set BEFORE the move**, from the material the head is
+	# about to be in, so the tick that carves and the tick that advances agree
+	# about how hard the rock is. `dig_load` is the same number the effects read.
+	var hardness := _hardness_under_head(dir)
+	dig_load = Tuning.dig_load(hardness) if drill_engaged else 0.0
+	flight.plow_speed = 0.0
+	if drill_engaged:
+		flight.plow_speed = minf(
+			Tuning.plow_speed(drill_rate(), hardness),
+			Tuning.speed_for(load_kg) * speed_mult())
 
 	flight.speed_mult = speed_mult()
 	flight.step(dir, load_kg, density, dt)
@@ -248,8 +266,8 @@ func step(dir: Vector2, drilling: bool, dt: float) -> void:
 		hull_hit.emit(flight.impact_speed)
 
 	_drain(dir, dt)
-	if drilling and held:
-		_drill(target, dt)
+	if drill_engaged:
+		_drill(dt)
 	_pressure(d, density, dt)
 	_settle(dt)
 	_collect()
@@ -278,37 +296,83 @@ func _drain(dir: Vector2, dt: float) -> void:
 ## Cut whatever the nose is pointed at. Power is charged for the hit points
 ## actually spent, so hard rock costs more by construction rather than through a
 ## second curve that could drift out of step with the hardness table.
-func _drill(c: Vector2i, dt: float) -> void:
-	if Flight.no_target(c) or world.is_open(c.x, c.y):
+## **The hardness of the material the hull is actually in or entering**, which is
+## what decides how fast the plow may advance.
+##
+## Sampled at the hull's LEADING FACE and at its centre, hardest of the two, and
+## only over cells that still have something in them. That is not a detail: it is
+## what conserves the work.
+##
+## Time spent crossing a cell is one metre over the plow speed, and the plow
+## speed is the drill's power over the hardness, so the hit points delivered
+## while crossing are exactly the hit points the cell costs. Sample anywhere else
+## and that identity breaks. The first version read a cell a whole metre ahead of
+## the hull, so the reading fell back to ordinary rock as soon as the ship was
+## alongside the hard thing rather than approaching it - and a scripted miner
+## drove straight through a planet's CORE without cutting it, ending forty metres
+## below with the core sitting at fill 0.39.
+func _hardness_under_head(dir: Vector2) -> float:
+	var band := Tuning.hardness_at(flight.depth()) * Classes.hardness_mult(world.class_id)
+	var d := dir
+	if d.length_squared() < 0.001:
+		d = flight.heading
+	var hardest := 0.0
+	for p in [flight.pos, flight.pos + d.normalized() * (Tuning.SHIP_HALF + 0.12)]:
+		var x := int(roundf(p.x))
+		var dd := int(roundf(p.y))
+		if not world.in_bounds(x, dd) or world.fill[world.idx(x, dd)] <= Tuning.OPEN_FILL:
+			continue
+		var h := Tuning.hardness_at(float(dd)) * Classes.hardness_mult(world.class_id)
+		# The core takes six times as long as anything else and it is meant to:
+		# the cut is the tell that the extraction is about to start.
+		if world.mat[world.idx(x, dd)] == Ore.CORE:
+			h *= 6.0
+		hardest = maxf(hardest, h)
+	# Nothing solid under the hull: the drill is held while flying down a shaft
+	# already cut. The band's own hardness keeps `dig_load` meaningful, and the
+	# speed cap is the ship's rather than the rock's.
+	return hardest if hardest > 0.0 else band
+
+
+## **One tick of the plow.** Carve the swept capsule the hull just moved through
+## and bank whatever it freed.
+##
+## The old version took one cell and returned; this takes a path. Everything
+## about what a cell is WORTH is still in `World.cut`, reached through
+## `World.carve`, so the shape of the dig changed and the yield rules did not.
+func _drill(dt: float) -> void:
+	var res := world.carve(
+		flight.last_pos, flight.pos,
+		Tuning.BRUSH_RADIUS, Tuning.BRUSH_FEATHER,
+		drill_rate() * dt)
+	var spent := float(res["cut"])
+	if spent <= 0.0:
 		return
-	var res := world.cut(c.x, c.y, drill_rate() * dt)
-	if res["cut"] <= 0.0:
-		return
-	power -= float(res["cut"]) * Tuning.POWER_PER_HP
-	# The sound answers the WORK, not the button: it fires on hit points actually
-	# removed, so the deep sounds harder to cut because it is.
-	drill_bite.emit(Tuning.hardness_at(float(c.y)) * Classes.hardness_mult(world.class_id))
-	if not res["broke"]:
-		return
+	power -= spent * Tuning.POWER_PER_HP
+	# The sound answers the WORK, not the button: hit points actually removed,
+	# so the deep sounds harder to cut because it is.
+	drill_bite.emit(_hardness_under_head(flight.heading))
 
 	if bool(res["core"]):
-		_begin_extraction(c)
+		_begin_extraction(res["core_cell"])
 		return
 	if int(res["filament"]) > 0:
 		filament += int(res["filament"])
 		found_cache.emit(int(res["filament"]))
-		return
 
-	var kg := float(res["kg"])
-	var value := float(res["value"])
-	broke_cell.emit(c.x, c.y, int(res["mat"]), value)
-	if kg <= 0.0:
-		return
-	# The drill NEVER refuses. A full hold leaves the ore on the ground.
-	if load_kg + kg > hold_capacity():
-		drops.append({"x": c.x, "d": c.y, "mat": int(res["mat"]), "kg": kg, "value": value})
-	else:
-		_stow(int(res["mat"]), kg, value)
+	for e in (res["cells"] as Array):
+		var cell: Dictionary = e
+		var kg := float(cell["kg"])
+		var value := float(cell["value"])
+		broke_cell.emit(int(cell["x"]), int(cell["d"]), int(cell["mat"]), value)
+		if kg <= 0.0:
+			continue
+		# The drill NEVER refuses. A full hold leaves the ore on the ground.
+		if load_kg + kg > hold_capacity():
+			drops.append({"x": int(cell["x"]), "d": int(cell["d"]),
+				"mat": int(cell["mat"]), "kg": kg, "value": value})
+		else:
+			_stow(int(cell["mat"]), kg, value)
 
 
 func _stow(m: int, kg: float, value: float) -> void:

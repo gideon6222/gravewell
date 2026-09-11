@@ -953,6 +953,82 @@ half-finished on `main`.
       with its handler in the same commit, icon, splash, package. Then `/playtest desk`,
       `/playtest phone`, `/ship`.
 
+### Phase 1b: the feel of digging (from his first phone session, 2026-09-10)
+
+His words are in `playtests/gravewell.md`. Five asks, and the research brief behind these is
+summarised in `NOTES.md`. The ordering matters: **M11 is first because it is also the fix for
+M12 and half of M13.** A feathered brush carves smooth walls, smooth walls have no protrusions,
+and protrusions are what throw the hard wedges he is seeing.
+
+- [x] **M11. Continuous excavation.** (0.10.0) *His ask:* "digging feels very rigid and chunky ...
+      I would rather dig at a more consistent speed ... instead of taking longer to destroy a
+      chunk I would like it to continously plow through but get slowed down on denser
+      materials."
+
+      The current model targets ONE cell, spends N seconds taking its fill from 1 to 0 at a
+      fixed rate, and the ship cannot move until that cell is gone: motion is gated on a
+      discrete unit of work at a 1 m cadence, which is exactly the cadence he feels.
+
+      Replace it with a **feathered disc brush swept along the path travelled**, subtracting
+      work from every cell its footprint covers, and **never gate the ship's forward motion on
+      a cell being finished**. Forward speed while drilling is
+      `max(floor, base / (1 + k * hardness))`, so denser material is slower and nothing is ever
+      stopped. Research: Motherload is the only reference game that does this (the pod drills
+      the instant it moves into terrain, speed is a ft/s stat that falls with depth);
+      SteamWorld Dig, Dome Keeper and Terraria are all discrete per-tile and hide it behind a
+      fast fixed cadence. Sweep the brush from the last position so a fast tick cannot tunnel
+      through a thin wall.
+
+      *Proves it:* a design test that the time to cross ten metres of the hardest band is
+      within a bounded ratio of the softest (target 4:1 to 6:1; past that he reports "stuck",
+      not "slow"), that forward speed never reaches zero while drilling, and that the ship's
+      position advances on EVERY tick of a drill rather than in steps. The existing
+      "every bite size breaks and pays" sweep keeps running against the new carve.
+      *Film:* `dig-soft`, `dig-hard`.
+
+- [x] **M12. Smooth walls, and one light instead of a starburst.** (0.10.0) *His asks:* "there appears
+      to be multiple separate beams when using the light on certain settings rather than a glow
+      that extends from the front of the ship" and "the light also appears to get caught on the
+      edges of tunnels that I have made because they have random edges that stick out."
+
+      **These are one artefact seen twice.** 0.9.2 made the ambient carry the fan's shadow, so
+      the fan's angular quantisation became visible in every direction at once rather than only
+      inside the beam: the starburst in his 5 m screenshot radiates backwards too. Every
+      one-cell protrusion left by the old whole-cell carve throws its own hard wedge.
+
+      Three changes, cheapest first: the feathered brush from M11 removes the protrusions;
+      bearing-PCF on the fan replaces the distance lerp (compare the pixel's distance against
+      the nearest several stored bearings and average the LIT/SHADOWED outcome, not the stored
+      distances, which is what Godot's own 2D shadows do and why blurring raw distance is
+      wrong); and the ambient's shadow floor rises so a wedge dims the air rather than cutting
+      it. Raising the ray count is explicitly NOT the fix - 50 to 360 rays still looked jittery
+      in the reference writeup, and it is the most expensive option on Adreno.
+      *Proves it:* a headless test on `Light.shadow_at` that the lit fraction varies smoothly
+      with bearing across a carved wall, plus the same two frames before and after.
+      *Film:* `starburst`.
+
+- [x] **M13. The effects that sell the work.** (0.10.0) *His ask:* "the particles or effects will sell
+      that something is taking a lot more work, or easy fluffy dirt."
+
+      One number, `dig_load` in 0..1, derived from the hardness the brush is actually chewing
+      this tick, drives every channel at once: particle rate, size, lifetime and colour (many
+      light motes for soft dirt, few bright sparks and chips for dense rock), a CONTINUOUS
+      drill loop whose volume, pitch and lowpass track the load rather than one shot per bite,
+      continuous haptics via a repeating waveform whose amplitude is updated each frame rather
+      than `createOneShot` per hit (the machine-gun fix), and camera shake amplitude.
+      Degrade gracefully where `hasAmplitudeControl()` is false.
+      *Proves it:* `dig_load` is monotonic in hardness and spans its range across the bands;
+      the audio and haptic channels read the same number as the particles.
+      *Film:* `dig-soft`, `dig-hard` again, judged side by side.
+
+- [x] **M14. A pause button.** (0.10.0) *His ask:* "can you also add a pause button?" A visible control
+      in the HUD, away from the thumb that drives, opening the sheet the back button already
+      opens. `POLISH.md` wants pause reachable without a system gesture, and on a phone with
+      gesture navigation the back swipe is not discoverable.
+      *Proves it:* the smoke run presses the button and asserts the sheet, and asserts the
+      button is outside the d-pad's rect at the phone's aspect.
+
+
 ### Phase 2: content and meta
 
 - [ ] The other five classes: Drown, Crush, Hollow, Verge, Quick, in that order. Drown first

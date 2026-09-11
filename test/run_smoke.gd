@@ -79,6 +79,7 @@ func _run(main) -> void:
 	_check_the_hold_is_a_place(main)
 	_check_the_game_makes_a_sound(main)
 	_check_the_lamp_is_one_light(main)
+	_check_the_pause_button(main)
 	_check_the_back_button(main)
 
 	main.free()
@@ -162,6 +163,42 @@ func _check_the_lamp_is_one_light(main) -> void:
 	# get it wrong and every tunnel wall goes back to vertical streaks.
 	_t.approx(float(rock.get_shader_parameter("face_z")), Terrain.HALF, 1e-4,
 		"the rock shader thinks the front face is somewhere it is not")
+
+	# The bearing filter is stated in rays, and the ray count lives in `Light`.
+	_t.approx(float(haze.get_shader_parameter("fan_texel")), 1.0 / float(Light.RAYS), 1e-9,
+		"the air filters the fan over a different angle than the fan was cast at")
+
+
+## **A pause the thumb can find, clear of everything else.**
+##
+## His ask: "can you also add a pause button?" The back gesture already opened
+## the sheet, and on a phone with gesture navigation a back SWIPE is not a
+## control anyone discovers.
+##
+## The rects are asserted at the phone's real aspect, because a control that
+## overlaps another is invisible to every test that only presses it - the first
+## placement sat exactly on the credits line and the suite was perfectly happy.
+func _check_the_pause_button(main) -> void:
+	_t.begin("smoke > the pause button")
+	var hud: Hud = main._hud
+	var shell: Shell = main._shell
+	var btn: Hud.PlateButton = hud._pause_btn
+	_t.ok(btn != null, "there is no pause button")
+	_t.eq(btn.visible, true, "the pause button is not drawn during a descent")
+
+	var r := btn.get_global_rect()
+	_t.gt(r.size.x, 60.0, "the pause button has no width, so nothing below means anything")
+	for other in [hud._pad, hud._bank, hud._depth, hud._load_btn, hud._power, hud._hull]:
+		_t.ok(not r.intersects(other.get_global_rect()),
+			"the pause button overlaps another control, so one of them cannot be read or pressed")
+
+	# And it does what it says, through the same press a thumb makes.
+	shell.screen = Shell.Screen.PLAYING
+	shell._show()
+	btn.pressed.emit()
+	_t.eq(shell.screen, Shell.Screen.PAUSED, "the pause button did not open the pause sheet")
+	_t.eq(shell._pause.visible, true, "the pause sheet is not drawn")
+	shell.go_back()
 
 
 ## **The back button unwinds one layer per press and never quits.** Both halves

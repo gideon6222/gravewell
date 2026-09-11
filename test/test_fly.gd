@@ -144,32 +144,24 @@ func test_the_nose_points_where_it_is_going(t: TestHarness) -> void:
 	for _i in range(10):
 		f.step(Vector2(1, 0), 0.0, 0.0, DT)
 	t.gt(f.heading.x, 0.9, "heading follows a held right")
-	var c := f.drill_target(Vector2(1, 0))
-	t.gt(float(c.x), f.pos.x, "and the drill bites to the right of the hull")
-	t.eq(c.y, int(roundf(f.pos.y)), "and on the same row, not diagonally")
+	t.gt(f.nose_point().x, f.pos.x, "and the drill head is to the right of the hull")
 	f.heading = Vector2(0, 1)
-	var down := f.drill_target(Vector2(0, 1))
-	t.gt(float(down.y), f.pos.y, "and the drill bites below the hull when held down")
+	t.gt(f.nose_point().y, f.pos.y, "and below the hull when the heading is down")
 
 
-## The bug the scripted miners found: a diagonal nose points at the corner cell,
-## which the hull can never fit through because the two orthogonal neighbours
-## are still there. Measured before the fix: a miner held down-right and stayed
-## at 1.12 m for six hundred frames, cutting and never moving.
+## The bug the scripted miners found, and why the plow retires it.
 ##
-## Reintroducing the bug means pointing the drill at the geometric nose cell
-## instead of at what is blocking, so this asserts the property that made the
-## difference: **the cell bitten on a diagonal is orthogonally adjacent**, which
-## is the only kind the hull can move into.
-func test_a_diagonal_bites_something_the_hull_can_move_into(t: TestHarness) -> void:
-	var w := World.new(101)
-	var f := Flight.new(w)
-	f.pos = Vector2(0.0, 20.0)
-	var c := f.drill_target(Vector2(1, 1).normalized())
-	t.ok(not Flight.no_target(c), "a diagonal hold has something to cut")
-	var dx: int = absi(c.x - int(roundf(f.pos.x)))
-	var dd: int = absi(c.y - int(roundf(f.pos.y)))
-	t.eq(dx + dd, 1, "the bitten cell is orthogonally adjacent, never the corner")
+## The old drill aimed at ONE cell. A diagonal nose points at the corner cell,
+## which the hull can never fit through because the two orthogonal neighbours are
+## still there, so a miner held down-right and stayed at 1.12 m for six hundred
+## frames, cutting and never moving. The fix then was to bite whatever was
+## blocking the hull instead.
+##
+## The brush removes the whole question: it carves a capsule swept along the path
+## the hull actually travelled, so a diagonal clears both orthogonal neighbours
+## as it goes, because the hull passes through them. The assertion is the same
+## one that mattered - **a diagonal gets somewhere** - and it now lives in the
+## test below, which drives the real `Sim`.
 
 
 ## And the whole point of it: a diagonal hold makes progress **when there is
@@ -201,13 +193,41 @@ func test_a_diagonal_hold_digs_when_it_cannot_skate(t: TestHarness) -> void:
 	t.gt(sim.flight.pos.x, start.x + 1.0, "and somewhere right")
 
 
-func test_the_drill_never_cuts_backwards(t: TestHarness) -> void:
-	var w := World.new(101)
-	var f := Flight.new(w)
-	f.pos = Vector2(0.0, 30.0)
-	for dir in [Vector2(0, 1), Vector2(0, -1), Vector2(1, 0), Vector2(-1, 0)]:
-		var c := f.drill_target(dir)
-		if Flight.no_target(c):
-			continue
-		var away := Vector2(float(c.x), float(c.y)) - f.pos
-		t.gt(away.dot(dir), 0.0, "holding %s never bites a cell behind the ship" % str(dir))
+## **The brush never reaches behind the ship.** It is swept from where the hull
+## was to where it is, so the only material it can take is material the hull has
+## passed through or is about to. A brush stamped on the ship's CENTRE with no
+## sweep would hollow out a bubble around it and widen every tunnel it re-entered.
+func test_the_plow_never_carves_behind_the_ship(t: TestHarness) -> void:
+	var reach: float = Tuning.BRUSH_RADIUS + Tuning.BRUSH_FEATHER
+	for dir in [Vector2(0, 1), Vector2(1, 0), Vector2(-1, 0)]:
+		var sim := Sim.new(2024)
+		sim.flight.pos = Vector2(0.0, 30.0)
+		sim.flight.vel = Vector2.ZERO
+		sim.flight.heading = dir
+		var start := sim.flight.pos
+		# **Snapshot the fill, and compare the fill.** Asserting that no cell
+		# BEHIND was fully opened cannot fail: a stray carve spreads its tick's
+		# hit points across every cell it covers, so the ones behind come out
+		# half eaten and still count as solid. Verified by making the brush carve
+		# three metres backwards, which this now catches and the earlier version
+		# did not.
+		var before := PackedFloat32Array(sim.world.fill)
+		for _i in range(180):
+			sim.power = sim.power_capacity()
+			sim.hull = Tuning.HULL_MAX
+			sim.step(dir, true, DT)
+		var w := sim.world
+		var touched := 0
+		for d in range(int(start.y) - 6, int(start.y) + 7):
+			for x in range(int(start.x) - 6, int(start.x) + 7):
+				if not w.in_bounds(x, d):
+					continue
+				var i2 := w.idx(x, d)
+				if absf(w.fill[i2] - before[i2]) < 1.0e-5:
+					continue
+				var away := Vector2(float(x), float(d)) - start
+				if away.dot(dir) >= -reach:
+					continue
+				touched += 1
+		t.eq(touched, 0,
+			"holding %s ate into %d cells behind where the ship started" % [str(dir), touched])

@@ -143,9 +143,20 @@ func test_the_first_wall_is_lit_not_in_its_own_shadow(t: TestHarness) -> void:
 	var from := Vector2(0.0, 30.0)
 	var fan := Light.fan(w, from, 18.0)
 
-	var lit := 0
-	var shadowed := 0
-	# Sample ACROSS each wall face, not at its centre.
+	# **Measured as a MEAN, not as a count over a threshold.**
+	#
+	# `shadow_at` filters across neighbouring bearings now, so it answers in
+	# fifths rather than in 0 or 1, and a wall face a few centimetres from a
+	# corner correctly comes back part shadowed: that penumbra is the whole point
+	# of the filter and it is what stopped the lamp reading as a fan of separate
+	# beams. A binary count called every one of those a failure and put the
+	# fraction at 10.4% against a 5% bound, on a fan that had got BETTER.
+	#
+	# The claim has not moved: a wall fronting the lamp is lit, not sitting in its
+	# own shadow. The mean says that more precisely than a threshold did.
+	var total := 0
+	var sum := 0.0
+	var darkest := 1.0
 	for d in range(22, 39):
 		for x in [1, -1]:
 			if w.is_open(x, d):
@@ -155,16 +166,23 @@ func test_the_first_wall_is_lit_not_in_its_own_shadow(t: TestHarness) -> void:
 			for k in range(9):
 				var along := -0.45 + 0.1125 * float(k)
 				var p := Vector2(float(x) - 0.45 * float(signi(x)), float(d) + along)
-				if Light.shadow_at(fan, from, p) > 0.5:
-					lit += 1
-				else:
-					shadowed += 1
-	var total := lit + shadowed
+				var v := Light.shadow_at(fan, from, p)
+				sum += v
+				darkest = minf(darkest, v)
+				total += 1
 	t.gt(float(total), 100.0, "the fixture samples enough of the wall to mean something")
-	var frac := float(shadowed) / float(maxi(total, 1))
-	t.lt(frac, 0.05,
-		"%.1f%% of the first wall is in its own shadow; the fan is recording the near side"
-		% (frac * 100.0))
+	var mean := sum / float(maxi(total, 1))
+	t.gt(mean, 0.65,
+		"the first wall averages %.2f lit; the fan is recording the near side of it"
+		% mean)
+	# **And no part of a fronting wall is BLACK.** This is the assertion that
+	# carries the claim now. Measured with a single tap the darkest sample was
+	# 0.000 - parts of the wall genuinely sat in their own shadow, and the old
+	# threshold count let it through at 4.9%; with the filter the darkest is
+	# 0.40. A penumbra is a fifth or two off full. Its own shadow is nothing.
+	t.gt(darkest, 0.15,
+		"some of the first wall reads %.2f, which is its own shadow rather than a soft edge"
+		% darkest)
 
 
 ## And the fan must still actually cast a shadow, or the test above passes by
@@ -219,3 +237,77 @@ func test_the_solve_is_cheap_enough_to_run_on_a_dig(t: TestHarness) -> void:
 		Light.flood(w, 0, 34)
 	var per := float(Time.get_ticks_usec() - t0) / 10000.0
 	t.lt(per, 60.0, "a flood over the worst-case open window takes %.1f ms" % per)
+
+
+## **The light is one glow, not a fan of separate beams.**
+##
+## His report on the first phone build: "there appears to be multiple separate
+## beams when using the light on certain settings rather than a glow that extends
+## from the front of the ship." The starburst is the fan's angular resolution
+## showing through: two adjacent rays that hit different occluders store very
+## different distances, a single tap blends those DISTANCES, and the boundary
+## lands as a hard wedge.
+##
+## The fixture is a ragged wall on purpose. A smooth tunnel cannot show this at
+## all - which is why the first attempt to measure it on a carved shaft found
+## nothing and proved nothing: the feathered brush had already removed every
+## protrusion, so there was no artefact left for the filter to be tested against.
+##
+## The measure is how much the lit fraction JUMPS between neighbouring bearings
+## on a ring around the lamp. A starburst is large jumps; a glow is small ones.
+func test_the_shadow_is_a_glow_and_not_a_fan_of_beams(t: TestHarness) -> void:
+	var w := World.new(77)
+	var cx := 0
+	var cd := 30
+	# Open ground with single-cell PILLARS left standing in it. Every pillar
+	# throws its own wedge, so a ring drawn past them crosses boundary after
+	# boundary, which is exactly the frame he photographed. A smooth carved
+	# tunnel cannot show this at all - the first attempt to measure it on one
+	# found no difference and proved nothing, because the feathered brush had
+	# already removed every protrusion there was.
+	for d in range(cd - 12, cd + 13):
+		for x in range(cx - 12, cx + 13):
+			var r := Vector2(float(x - cx), float(d - cd)).length()
+			if r > 11.0:
+				continue
+			if r > 2.5 and r < 7.0 and (absi(x) * 5 + absi(d) * 3) % 7 == 0:
+				continue                       ## a pillar, left standing
+			w.fill[w.idx(x, d)] = 0.0
+			w.mat[w.idx(x, d)] = Ore.AIR
+
+	var from := Vector2(float(cx), float(cd))
+	var fan := Light.fan(w, from, 12.0)
+	var lit: Array[float] = []
+	var n := 240
+	for i in range(n):
+		var a := TAU * float(i) / float(n)
+		var p := from + Vector2(cos(a), sin(a)) * 9.0
+		lit.append(Light.shadow_at(fan, from, p))
+
+	# The fixture has to actually cast something, or this passes on a lit room.
+	var mean := 0.0
+	for v in lit:
+		mean += v
+	mean /= float(n)
+	t.gt(mean, 0.05, "the ragged chamber casts no shadow at all, so nothing is being tested")
+	t.lt(mean, 0.98, "the ragged chamber shadows nothing, so nothing is being tested")
+
+	# **The discriminating number is the WORST jump, not the mean.** A single tap
+	# can only answer 0 or 1, so every boundary is a step of a whole unit; five
+	# taps answer in fifths and a boundary is crossed in five steps. Measured on
+	# this fixture: worst 1.000 with 22 hard edges unfiltered, worst 0.200 and
+	# none with the filter. The MEAN jump barely moves between the two (0.092 to
+	# 0.082), because the number of boundaries is the same either way - it was
+	# the first thing tried and it does not separate them.
+	var worst := 0.0
+	var hard := 0
+	for i in range(n):
+		var d := absf(lit[i] - lit[(i + n - 1) % n])
+		worst = maxf(worst, d)
+		if d > 0.5:
+			hard += 1
+	t.eq(hard, 0,
+		"%d bearings step by more than half a unit, which draws as that many hard-edged beams" % hard)
+	t.lt(worst, 0.5,
+		"the lit fraction jumps %.2f between neighbouring bearings, which is a wedge with an edge on it"
+			% worst)

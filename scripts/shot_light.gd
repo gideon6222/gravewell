@@ -59,6 +59,16 @@ func _initialize() -> void:
 	# Stage 4 climbs well clear and then turns back down, so there is open shaft
 	# in BOTH directions: a beam falling away into air ahead and a filled tunnel
 	# behind, in one frame, with no rock close enough to hide either.
+	# Stage 5 reproduces the frame he sent: an irregular carved chamber, with the
+	# ship flying LEFT across it. The starburst of separate hard-edged rays is at
+	# its worst here, because the ambient carries the fan's shadow in every
+	# direction at once and every protrusion throws its own wedge.
+	if _stage == 5:
+		_hold(Vector2(1, 0), 1.2, step)
+		_hold(Vector2(0, 1), 1.0, step)
+		_hold(Vector2(-1, 0), 2.0, step)
+		_hold(Vector2(0, -1), 1.0, step)
+		_hold(Vector2(-1, 0), 1.4, step)
 	if _stage == 4:
 		_hold(Vector2(0, -1), 5.0, step)
 		_hold(Vector2(0, 1), 0.9, step)

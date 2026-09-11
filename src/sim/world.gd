@@ -93,6 +93,25 @@ func fill_at(x: int, d: int) -> float:
 	return fill[idx(x, d)]
 
 
+## **Fill at a POINT, bilinear on the cell-centre lattice.**
+##
+## The same lattice and the same interpolation the contour is built from, so the
+## number this returns is the one the player is looking at. It exists because a
+## per-cell value is flat inside a cell, and a ship backing out of material it
+## has half cut needs to know whether it is getting out, which is a question that
+## has to have a different answer half a cell later.
+func fill_between(p: Vector2) -> float:
+	var x0 := int(floor(p.x))
+	var d0 := int(floor(p.y))
+	var tx := p.x - float(x0)
+	var td := p.y - float(d0)
+	var a := fill_at(x0, d0)
+	var b := fill_at(x0 + 1, d0)
+	var c := fill_at(x0, d0 + 1)
+	var e := fill_at(x0 + 1, d0 + 1)
+	return lerp(lerp(a, b, tx), lerp(c, e, tx), td)
+
+
 ## The ONE definition of passable, shared by collision, the flood and the drill.
 ## A cell is passable only when it is fully cut: a half-cut cell you can fly
 ## through is a cell that never breaks and never pays.
@@ -290,6 +309,86 @@ func cut(x: int, d: int, hp: float) -> Dictionary:
 	out["kg"] = y["kg"]
 	out["value"] = y["value"]
 	mat[i] = Ore.AIR
+	return out
+
+
+## **Carve a feathered capsule from `a` to `b` and return everything it freed.**
+##
+## This is the plow. `cut()` above is still what removes fill from ONE cell and
+## decides what it was worth; this decides which cells the drill head is over and
+## how much of the tick's work each of them gets. Keeping the two apart is what
+## lets the yield rules stay in one place while the SHAPE of the dig changes.
+##
+## Three properties it has to have, each of which cost something to learn:
+##
+## **Feathered.** The weight is 1.0 inside `radius` and falls to 0 across
+## `feather`. A hard rim bites in circular arcs that do not line up with the
+## grid, and the contour comes out scalloped - which is exactly the "random edges
+## that stick out" that his light was catching on.
+##
+## **Swept.** Distance is measured to the SEGMENT a-b, not to a point. A tick at
+## a low frame rate moves the ship further than the brush is wide, and a
+## point-sampled brush would leave a standing wall behind it that the hull is
+## already past.
+##
+## **It clears its core completely.** Cells within `radius` of the path get the
+## full weight, and `radius` is wider than the hull's half-extent, so the ship
+## can never end a tick inside rock it has not paid to remove. Without that,
+## releasing the drill mid-cut wedges the ship in a cell it cannot re-enter.
+func carve(a: Vector2, b: Vector2, radius: float, feather: float, hp: float) -> Dictionary:
+	var out := {
+		"cut": 0.0, "broke": 0, "kg": 0.0, "value": 0.0, "filament": 0,
+		"core": false, "core_cell": Vector2i.ZERO, "cells": [],
+	}
+	if hp <= 0.0:
+		return out
+	var reach := radius + feather
+	# The weights are normalised, so a wide brush does not dig faster than a
+	# narrow one: the tick's hit points are SHARED between the cells under it.
+	# Without this the dig rate would depend on the brush's area, and the brush
+	# is a picture decision while the rate is a balance decision.
+	var cells: Array[Vector2i] = []
+	var weights: Array[float] = []
+	var total := 0.0
+	var lo := Vector2(minf(a.x, b.x), minf(a.y, b.y)) - Vector2(reach, reach)
+	var hi := Vector2(maxf(a.x, b.x), maxf(a.y, b.y)) + Vector2(reach, reach)
+	for d in range(int(floor(lo.y + 0.5)), int(floor(hi.y + 0.5)) + 1):
+		for x in range(int(floor(lo.x + 0.5)), int(floor(hi.x + 0.5)) + 1):
+			if not in_bounds(x, d) or fill[idx(x, d)] <= Tuning.OPEN_FILL:
+				continue
+			var dist := SimUtil.point_to_segment(Vector2(float(x), float(d)), a, b)
+			if dist >= reach:
+				continue
+			var w := 1.0 if dist <= radius else 1.0 - (dist - radius) / maxf(feather, 0.001)
+			w = w * w * (3.0 - 2.0 * w)          ## smoothstep, so the rim is soft
+			cells.append(Vector2i(x, d))
+			weights.append(w)
+			total += w
+	if total <= 0.0:
+		return out
+
+	for i in range(cells.size()):
+		var c: Vector2i = cells[i]
+		var res := cut(c.x, c.y, hp * weights[i] / total)
+		if float(res["cut"]) <= 0.0:
+			continue
+		out["cut"] = float(out["cut"]) + float(res["cut"])
+		if not bool(res["broke"]):
+			continue
+		out["broke"] = int(out["broke"]) + 1
+		if bool(res["core"]):
+			out["core"] = true
+			out["core_cell"] = c
+			continue
+		if int(res["filament"]) > 0:
+			out["filament"] = int(out["filament"]) + int(res["filament"])
+			continue
+		# Each broken cell is reported on its own, because the hold can fill
+		# half way through a tick and the rest has to land on the ground.
+		(out["cells"] as Array).append({
+			"x": c.x, "d": c.y, "mat": int(res["mat"]),
+			"kg": float(res["kg"]), "value": float(res["value"]),
+		})
 	return out
 
 

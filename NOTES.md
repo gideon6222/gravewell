@@ -678,3 +678,136 @@ on purpose so a rich seam reads through the dark, and the deep bands are dense w
 high-glow material (`COLOR.a` measured 0.67 in one of them). It is doing what it
 was written to do; whether seams should read tighter than that is his call, not a
 lighting fix to make under a lighting request.
+
+## 0.10.0: the drill is a plow (2026-09-11)
+
+His first phone session on 0.9.2, verbatim in `playtests/gravewell.md`. Five asks;
+the research brief behind them covered continuous digging and two rendering
+artefacts. **The ordering mattered more than any of the individual fixes: M11 is
+also the fix for M12 and half of M13.**
+
+### 18. Anything that gates motion on finishing a unit of work reads as chunky
+
+"digging feels very rigid and chunky ... it takes large chunks out, slows me
+down, then speeds up." The old drill aimed at ONE cell, spent
+`fill * hardness / rate` seconds taking it to zero, and refused to let the hull
+move until it was gone. **He feels the cadence, not the interpolation**: every
+individual step was already smooth and it did not help.
+
+Of the reference games only Motherload does what he described - the pod drills
+the instant it moves into terrain and its speed is a number that falls with
+depth. SteamWorld Dig, Dome Keeper and Terraria are all discrete per-tile
+underneath, hidden behind a fast fixed swing cadence, which is the thing being
+complained about.
+
+### 19. Derive the speed from the bill, so the picture and the cost cannot disagree
+
+Advancing one metre removes one cell of fill, which costs `hardness` hit points,
+so `plow speed = drill power / (hardness * HP_PER_METRE)`. That single identity
+carries three things at once: the deep is slower, the power bill per metre is
+unchanged, and **the drill can never advance faster than it clears**.
+
+| | old | new |
+|---|---|---|
+| dig rate, mean of six planets | 1.26 m/s | 1.55 m/s (M) |
+| 200 m of pure digging | 159 s | 129 s |
+| power split (drill / thrust / lamp) | 34 / 29 / 19 | 36 / 33 / 22 |
+| surface to deepest speed ratio | n/a | 4.6:1 |
+
+Research puts the readable band at 4:1 to 6:1. `BAND_HP` already spanned 4.6:1,
+so the table needed no change at all.
+
+### 20. A floor under the plow speed is a licence to pass through unbroken rock
+
+`PLOW_MIN` was a `max()` inside `plow_speed` for one round, on the research's
+advice that a drill reaching zero reads as a dead input. It broke the identity
+above, and a scripted miner **drove straight through a planet's core without
+cutting it**, ending forty metres below with the core sitting at fill 0.39.
+
+The floor is now a property the band table KEEPS (`PLOW_MIN_ROCK`, asserted)
+rather than a clamp that is applied. The core multiplies hardness by six and is
+deliberately far under it: 0.11 m/s, nine seconds for one cell, which is the tell
+that the extraction is about to start.
+
+### 21. Sample the hardness at the hull's leading face, not at the drill head
+
+The first version read the cell a metre ahead. The reading fell back to ordinary
+rock the moment the ship was ALONGSIDE the hard thing rather than approaching it,
+and the conservation broke. At the leading face, time-in-cell times power equals
+exactly the cell's cost, by construction.
+
+### 22. Plowing means the hull is inside rock, and that needs depenetration
+
+The ship ends its tick inside material it is still cutting: that is the mechanic.
+But the ordinary resolve has nothing to push against when the START position is
+illegal, so it refused every direction and the ship was wedged in its own shaft
+the moment the player let go.
+
+Two bounds, and the first version had neither:
+
+- **Only while the drill is off.** Letting velocity through as well let a miner
+  cover 37 m in ten seconds and leave the whole shaft standing behind it.
+- **Strictly out, on a CONTINUOUS measure.** An overlap count is flat across most
+  of a cell, so "no deeper" read as "sideways is free"; an overlap AREA is flat
+  too, because the hull is 0.76 m and a cell is 1.0 m, so a hull inside one cell
+  covers the same area wherever it sits. Measured: it escaped 0.2 m and then sat
+  with its velocity zeroed. The measure is now the fill sampled bilinearly at the
+  hull's corners and centre, on the same lattice the contour uses.
+
+### 23. The starburst and the jagged edges were one artefact seen twice
+
+"multiple separate beams ... rather than a glow" and "the light also appears to
+get caught on the edges of tunnels that I have made because they have random
+edges that stick out". The feathered brush removed the protrusions, and the
+bearing filter removed the rest.
+
+**Filter the OUTCOME across bearings, never the stored distance.** Two adjacent
+rays that hit different occluders store wildly different distances; blending
+those lands at a distance neither measured, and the boundary draws as a hard
+wedge. 0.9.2 made it worse by giving the ambient a shadow, which put the wedges
+in every direction at once instead of only inside the beam.
+
+Measured on a field of single-cell pillars at nine metres (M):
+
+| taps | worst neighbouring jump | hard edges | first wall lit |
+|---|---|---|---|
+| 1 (none) | 1.000 | 22 | 0.98 mean, **0.00 darkest** |
+| 5 (PCF5) | 0.200 | 0 | 0.75 mean, 0.40 darkest |
+
+Raising the ray count is explicitly not the fix - the reference writeup reports
+360 rays still looking jittery - and it is the most expensive option on Adreno.
+
+Two things fell out of measuring it. **The first attempt measured nothing**,
+because it was pointed at a carved shaft and the feathered brush had already made
+that smooth: there was no artefact left to test the filter against, and the frame
+proved nothing either way. And the old `first wall is lit` test had been passing
+with parts of the wall at **0.00** - fully black - because a threshold count let
+4.9% through; it now asserts the darkest sample, which is the claim it was always
+making.
+
+### 24. One number for the work, four channels reading it
+
+`Sim.dig_load`, 0 to 1, zero when not drilling. The drill loop's volume, pitch
+and grit rate, the haptic pulse length and cadence, and the camera tremor all
+come off it, so they cannot disagree about whether this is fluffy dirt or real
+effort. The drill is a generated seamless loop rather than the Kenney impact
+one-shots, because the pitch has to answer the game and a recorded drill has its
+own pitch baked in.
+
+The per-cell haptic is gone for plain rock: under the plow a cell breaks about
+once a second, and a kick on each one competes with the rumble that is now
+carrying the information.
+
+### 25. The plow buried the ship behind the rock it was cutting
+
+The terrain's front face is at `Terrain.HALF` and the ship was at z = 0, so a
+hull inside partly-cut material was drawn BEHIND it and simply disappeared. The
+ship now rides just in front of the face. Found on the first frame after the plow
+landed, not by reasoning about it.
+
+### 26. And the first pause button sat exactly on the credits line
+
+The top row already carries three readouts. The smoke run now asserts the button
+does not intersect the d-pad, the bank, the depth, the hold or either gauge, at
+the phone's aspect - because a control that overlaps another is invisible to any
+test that only presses it.

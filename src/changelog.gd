@@ -9,9 +9,22 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.9.2"
+const VERSION := "0.10.0"
 
 const RELEASES := [
+	{
+		"version": "0.10.0",
+		"date": "2026-09-11",
+		"title": "The drill is a plow",
+		"notes": [
+			"Digging is continuous. The ship moves on every frame instead of stopping to finish a block, and what changes with the rock is how fast you get through it.",
+			"The deepest rock plows about four and a half times slower than the surface, and it never stops.",
+			"The drill is one sound that gets lower and louder as the material gets harder, not a hit per block, and the rumble in your hand tracks the same thing.",
+			"Tunnels come out smooth, so the lamp no longer catches on jagged edges you left behind.",
+			"The lamp reads as one glow instead of a fan of separate beams: shadows are filtered across bearings rather than snapping between rays.",
+			"A PAUSE button, so you do not need the back gesture.",
+		],
+	},
 	{
 		"version": "0.9.2",
 		"date": "2026-09-10",

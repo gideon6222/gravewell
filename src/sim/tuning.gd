@@ -116,9 +116,69 @@ const SHIP_HALF := 0.38           ## collision half-extent in cells. Under half 
 const IMPACT_FREE_SPEED := 4.0    ## m/s of closing speed that costs nothing
 const IMPACT_DAMAGE := 6.0        ## hull per m/s above that
 
-# ── the drill ─────────────────────────────────────────────────────────────
-const DRILL_RATE := 2.5           ## hit points a second at tier 0
+# ── the drill, which is a PLOW ────────────────────────────────────────────
+#
+# **Nothing gates the ship's motion on a unit of work being finished.** His
+# words after the first phone session: "digging feels very rigid and chunky.
+# while I am digging, it takes large chunks out, slows me down, then speeds up.
+# I would rather dig at a more consistent speed ... instead of taking longer to
+# destroy a chunk I would like it to continously plow through but get slowed
+# down on denser materials."
+#
+# The old model aimed at ONE cell, spent `fill * hardness / DRILL_RATE` seconds
+# taking it to zero, and refused to let the hull move until it was gone. That is
+# a stop-start at a one-metre cadence, and **the cadence is what he feels**: the
+# interpolation inside each step was already smooth and it did not help.
+#
+# Of the reference games, only Motherload does what he is describing - the pod
+# drills the instant it moves into terrain and its speed is a number that falls
+# with depth. SteamWorld Dig, Dome Keeper and Terraria are all discrete per-tile
+# underneath and hide it behind a fast fixed swing cadence, which is the thing
+# being complained about here.
+#
+# Speed comes out of the same arithmetic that pays for the hole, so the picture
+# and the bill cannot disagree. Advancing one metre removes one cell's worth of
+# fill, which costs `hardness` hit points, so
+#
+#     plow speed = drill power / (hardness * HP_PER_METRE)
+#
+const DRILL_RATE := 3.1           ## hit points a second at tier 0
 const DRILL_REACH := 0.62         ## m from the ship's centre the nose bites at
+
+## Hit points to advance one metre through hardness-1.0 rock. One cell of fill,
+## which is what one metre of tunnel is. It exists as a constant rather than as a
+## literal 1.0 so the speed and the power bill read the same number.
+const HP_PER_METRE := 1.0
+
+## The slowest ROCK is still visibly moving. Asserted, never applied.
+##
+## It was a `max()` inside `plow_speed` for one round and that was wrong: a floor
+## there lets the hull advance faster than the drill can clear the cell in front
+## of it, and **a ship that outruns its own carve passes through unbroken
+## material**. Measured, it went straight through a planet's core without cutting
+## it and ended forty metres past, with the core sitting at fill 0.62.
+##
+## So the speed is exactly what the material allows, with nothing under it, and
+## this is the property the band table has to keep: `BAND_HP` spans 1.0 to 4.6,
+## so the deepest rock still plows at 0.67 m/s. The core multiplies hardness by
+## six and is deliberately far below this - it is meant to be the slowest thing
+## in the game, and it is one cell.
+const PLOW_MIN_ROCK := 0.5
+
+## The drill head is a DISC, feathered at its rim, swept along the path actually
+## travelled this tick.
+##
+## Feathered because a hard-edged disc bites in circular arcs that do not line up
+## with the grid and leaves the contour scalloped, and **those scallops are what
+## his second complaint is about**: "the light also appears to get caught on the
+## edges of tunnels that I have made because they have random edges that stick
+## out." A smooth wall has no protrusions and a protrusion is what throws a hard
+## wedge of shadow.
+##
+## Swept, because a tick at a low frame rate would otherwise skip past a thin
+## wall and leave it standing behind the ship.
+const BRUSH_RADIUS := 0.52        ## m of full-strength cut around the head
+const BRUSH_FEATHER := 0.38       ## m of falloff beyond it
 
 ## Damage already done to a cell is KEPT when you stop. His words: "Blocks
 ## should stop being dug if you stop drilling but remember how much damage is
@@ -297,6 +357,36 @@ static func band_at(depth: float) -> int:
 		if depth >= float(BAND_DEPTHS[i]):
 			b = i
 	return b
+
+
+## **How fast the ship plows through material of this hardness.**
+##
+## The one place the dig's speed comes from. Derived rather than tuned: the cost
+## of a metre is a cell of fill at that hardness, and the power bill charges the
+## same hit points, so a change to one is a change to both.
+##
+## `BAND_HP` spans 1.0 to 4.6, which puts the deepest rock at 4.6 times slower
+## than the surface. That sits inside the 4:1 to 6:1 range the genre research
+## puts on "slow" before it starts reading as "stuck", and it is a spread across
+## the WHOLE descent rather than a step, so any one stretch feels steady.
+## **Nothing is clamped under this.** The speed IS the rate the drill can clear
+## the cell in front of the hull, so a floor is a licence to move through rock
+## that has not been cut. `PLOW_MIN_ROCK` says what the band table must keep.
+static func plow_speed(power: float, hardness: float) -> float:
+	return power / maxf(hardness * HP_PER_METRE, 0.001)
+
+
+## **How hard the work looks, in 0..1.** One number, and every channel that
+## sells the effort reads it: the particle rate and their colour, the drill
+## loop's pitch and filter, the haptic amplitude, the camera shake.
+##
+## His ask: "the particles or effects will sell that something is taking a lot
+## more work, or easy fluffy dirt." Four channels agreeing is what makes that
+## read; four channels each with their own curve is what makes it mush.
+static func dig_load(hardness: float) -> float:
+	var lo: float = BAND_HP[0]
+	var hi: float = BAND_HP[BAND_HP.size() - 1]
+	return clampf((hardness - lo) / maxf(hi - lo, 0.001), 0.0, 1.0)
 
 
 ## Hit points a cell at this depth. The only place hardness comes from.

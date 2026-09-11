@@ -230,24 +230,69 @@ static func _far_corner(cell: Vector2, from: Vector2, dir: Vector2) -> float:
 	return best
 
 
-## Is a point in shadow, given the fan? The shader does this per pixel; this is
-## the same arithmetic so a test can assert on what the shader will show.
+## Taps either side of the bearing, and the width one tap covers in rays. **One
+## source of truth with the shader**, which runs exactly this arithmetic per
+## pixel; `test_light.gd` asserts the property here and the smoke run asserts the
+## shader was handed the same ray count.
+## Measured on a field of single-cell pillars, at nine metres (M):
 ##
-## **Blend the two nearest rays the way the shader does.** A nearest-ray lookup
-## cannot see the interpolation artefact at all, because the artefact only
-## exists once two rays are blended, and sampling cell centres cannot see it
-## either, because a centre passes under both rules.
+## | taps | worst neighbouring jump | hard edges | first wall lit |
+## |---|---|---|---|
+## | 1 (none) | 1.000 | 22 | 0.98 mean, 0.00 darkest |
+## | 5 | 0.200 | 0 | 0.75 mean, 0.40 darkest |
+##
+## Five taps turn every boundary into five steps of a fifth instead of one step
+## of a whole unit, which is the starburst gone. Seven taps reach 0.143 and cost
+## two more samples per pixel for a difference nothing can see. The spread barely
+## matters to that result, so it is set narrow: wider only smears the wall a
+## corner fronts, and the wall is where the ore is.
+const PCF := 2
+const PCF_NEAR := 0.7      ## rays of spread at the lamp
+const PCF_PER_M := 0.10    ## and per metre of distance
+
+
+## How much of the light reaches a point, given the fan. 0 is full shadow, 1 is
+## fully lit, and everything between is the filter doing its job.
+##
+## **Average the OUTCOMES across neighbouring bearings, never the distances.**
+##
+## The first version blended the two nearest rays' stored distances and then
+## compared once. Two adjacent rays that hit different occluders store wildly
+## different distances, so the blend lands at a distance neither of them
+## measured, and the boundary comes out as a hard-edged wedge. His report, on the
+## first phone build: "there appears to be multiple separate beams when using the
+## light on certain settings rather than a glow that extends from the front of
+## the ship." 0.9.2 made it worse rather than better, by giving the ambient term
+## a shadow too, which put the wedges in every direction at once instead of only
+## inside the beam.
+##
+## Percentage-closer filtering is the standard answer and it is what Godot's own
+## 2D shadows do: compare this point against EACH of several stored rays and
+## average the lit-or-not answers. Raising the ray count is not the fix - the
+## reference writeup reports 360 rays still looking jittery - and it is the most
+## expensive option on a mobile GPU, where these taps are nearly free.
+##
+## The spread grows with distance, because at arm's length the neighbouring rays
+## describe the same wall and a wide filter smears it, while ten metres out they
+## are the only thing between a wedge and a staircase.
 static func shadow_at(fan_field: PackedFloat32Array, from: Vector2, p: Vector2) -> float:
 	var away := p - from
 	var dist := away.length()
 	if dist < 1.0e-5:
 		return 1.0
 	var a := fposmod(away.angle(), TAU) / TAU * float(RAYS)
-	var i0 := int(floor(a)) % RAYS
-	var i1 := (i0 + 1) % RAYS
-	var frac: float = a - floor(a)
-	var occ: float = lerpf(fan_field[i0], fan_field[i1], frac)
-	return 1.0 if dist <= occ else 0.0
+	var spread := PCF_NEAR + dist * PCF_PER_M
+	var lit := 0.0
+	for k in range(-PCF, PCF + 1):
+		var at := a + float(k) * spread
+		var i0 := int(floor(at)) % RAYS
+		if i0 < 0:
+			i0 += RAYS
+		var i1 := (i0 + 1) % RAYS
+		var frac: float = at - floor(at)
+		var occ: float = lerpf(fan_field[i0], fan_field[i1], frac)
+		lit += 1.0 if dist <= occ else 0.0
+	return lit / float(PCF * 2 + 1)
 
 
 ## Read the field at a cell offset from the origin it was solved around.

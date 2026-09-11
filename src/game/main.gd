@@ -40,6 +40,10 @@ const CAM_RATE := 6.0        ## exponential follow
 ## where the player has actually cut.
 const HAZE_Z := -0.35
 
+## The ship rides just in front of the rock's front face (`Terrain.HALF`), so it
+## stays visible while the plow has it buried in material it is still cutting.
+const SHIP_Z := Terrain.HALF + 0.12
+
 var sim: Sim
 
 var _cam: Camera3D
@@ -64,6 +68,10 @@ var _drag_from := Vector2.ZERO
 var _dragging := false
 var _ui: Control
 var _hud: Hud
+
+## Smoothed `dig_load`, for the camera tremor and the rumble's cadence.
+var _shake := 0.0
+var _rumble_wait := 0.0
 
 var _pad_vec := Vector2.ZERO
 var _pad_touch := -1
@@ -135,10 +143,17 @@ func _build_audio() -> void:
 ## Reconnected whenever `Sim` is replaced, because a signal connected to the old
 ## one is a sound that stops happening with no error anywhere.
 func _bind_audio() -> void:
-	sim.drill_bite.connect(func(hardness): _audio.drill_bite(hardness))
+	# `drill_bite` is no longer a sound: the drill is a modulated loop that
+	# `GameAudio.tick` drives off `sim.dig_load`, so a signal per tick has
+	# nothing left to connect to. It stays on `Sim` because the rate at which it
+	# fires is still the honest measure of work being done.
 	sim.broke_cell.connect(func(x, d, m, v):
 		_audio.broke(m != Ore.ROCK, Classes.is_brittle(sim.world.class_id))
-		_haptic(18, 0.35))
+		# Softer than it was, and only for ORE. Under the plow a cell breaks
+		# every second or so even in plain rock, and a kick on each one competes
+		# with the continuous rumble that is now saying how hard the work is.
+		if m != Ore.ROCK:
+			_haptic(18, 0.35))
 	sim.hull_hit.connect(func(_speed):
 		_audio.hull_hit()
 		_haptic(30, 0.6))
@@ -232,6 +247,14 @@ func _build_world() -> void:
 	# that threw inside the smoke check and silently skipped every assertion
 	# after it, which the gate then reported as "all passing".
 	_haze_mat.set_shader_parameter("debug_term", 0)
+	# One texel of the fan, so the shader's bearing filter is stated in RAYS.
+	# The ray count and the filter width are one fact, and the smoke run asserts
+	# they agree: a fan rebuilt at a different resolution with a hard-coded
+	# 1/256 in the shader would filter over the wrong angle and nothing would
+	# look broken enough to notice.
+	_haze_mat.set_shader_parameter("fan_texel", 1.0 / float(Light.RAYS))
+	_haze_mat.set_shader_parameter("pcf_near", Light.PCF_NEAR)
+	_haze_mat.set_shader_parameter("pcf_per_m", Light.PCF_PER_M)
 
 	var quad := QuadMesh.new()
 	quad.size = Vector2(float(HALF_W) * 2.4, float(HALF_D) * 2.4)
@@ -329,6 +352,11 @@ func _build_ui() -> void:
 	sim.descent_over.connect(func(_why): Save.write(sim))
 	_hud._lamp_btn.pressed.connect(func(): sim.cycle_lamp())
 	_hud._uplink_btn.pressed.connect(func(): sim.uplink())
+	# Straight into the sheet the back gesture opens, so there is one pause and
+	# not two that have to be kept in agreement.
+	_hud._pause_btn.pressed.connect(func():
+		if _shell != null:
+			_shell.pause_game())
 	_hud._launch_btn.pressed.connect(func(): sim.launch())
 	_hud._touch.touched.connect(_on_hold_touch)
 	_hud._touch.dragged.connect(_on_hold_drag)
@@ -461,6 +489,35 @@ func _tick(dt: float) -> void:
 	_post_mat.set_shader_parameter("pressure",
 		clampf(sim.pressure_rate() / 3.0, 0.0, 1.0))
 	_hud.tick(dt)
+	_dig_feedback(dt)
+
+
+## **The work, on the channels that are felt rather than read.**
+##
+## Everything here comes off `sim.dig_load`, the same number the drill loop and
+## the particles use, so the four channels cannot disagree about whether this is
+## fluffy dirt or something taking real effort. His ask: "the particles or
+## effects will sell that something is taking a lot more work, or easy fluffy
+## dirt."
+##
+## **A continuous rumble, not a pulse per hit.** The old drill fired a haptic on
+## every cell that broke, which under the plow would be a machine gun. Android's
+## own guidance for continuous effects is one waveform whose amplitude is
+## modulated; `Input.vibrate_handheld` has no amplitude stream, so the nearest
+## honest thing is a short pulse re-issued at a period that SHORTENS with the
+## load, which reads as one rumble getting heavier rather than as separate taps.
+func _dig_feedback(dt: float) -> void:
+	var load: float = sim.dig_load if sim.phase == Sim.Phase.DESCENT else 0.0
+	_shake = lerpf(_shake, load, SimUtil.smooth(7.0, dt))
+	if load <= 0.0:
+		_rumble_wait = 0.0
+		return
+	_rumble_wait -= dt
+	if _rumble_wait > 0.0:
+		return
+	# Heavy rock: long pulses close together. Loose dirt: short ones, sparse.
+	_rumble_wait = lerpf(0.16, 0.075, load)
+	_haptic(int(lerpf(8.0, 26.0, load)), lerpf(0.14, 0.5, load))
 
 
 func _sync_camera(dt: float) -> void:
@@ -472,7 +529,22 @@ func _sync_camera(dt: float) -> void:
 	# identity.
 	_cam.transform = Transform3D(Basis(), _cam.position)
 
-	var sp := Vector3(sim.flight.pos.x, DEPTH_SIGN * sim.flight.pos.y, 0.0)
+	# **In FRONT of the rock's front face, not level with it.**
+	#
+	# The plow puts the hull inside partly-cut material on purpose: that is what
+	# "digging through dense mud" means. The terrain's front face sits at
+	# `Terrain.HALF`, so a ship at z = 0 is drawn BEHIND the rock it is currently
+	# inside and simply disappears while it is working. Measured on the first
+	# frame after the plow landed: the ship was a couple of visible pixels at the
+	# tip of its own lamp pool.
+	# A small, fast tremor while the drill is loaded. Anchored to game TIME and
+	# not to the frame, so it is the same tremor at 60 and at 120 fps.
+	if _shake > 0.001:
+		var a := sim.time * 47.0
+		var amp := _shake * 0.045
+		_cam.position += Vector3(sin(a * 1.7) * amp, cos(a * 2.3) * amp, 0.0)
+
+	var sp := Vector3(sim.flight.pos.x, DEPTH_SIGN * sim.flight.pos.y, SHIP_Z)
 	_ship.position = sp
 	_ship.aim(sim.flight.heading)
 	# Throttle is read from the simulation's own velocity rather than from the

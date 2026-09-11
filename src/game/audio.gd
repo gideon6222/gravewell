@@ -43,7 +43,21 @@ var _bed_shallow: AudioStreamPlayer
 var _bed_deep: AudioStreamPlayer
 var _theme: AudioStreamPlayer
 
-var _drill_heat := 0.0               ## how hard the drill has been running
+## **The drill is a LOOP, not a shot per bite.**
+##
+## It used to fire a one-shot every time the drill removed something, rate
+## limited to twelve a second. Under the old model a bite was an event a second
+## or two apart and that read fine; the plow removes something on every single
+## tick, and a one-shot per tick is a machine gun. The research on continuous
+## drilling says the same thing about haptics: one persistent effect that gets
+## modulated, never a retrigger per hit.
+##
+## So: one looping player whose volume, pitch and filter all track `dig_load`,
+## and short one-shot grit on top at a rate proportional to the same number, so
+## the density of clatter is what says how hard the work is.
+var _drill_loop: AudioStreamPlayer
+var _drill_level := 0.0              ## smoothed dig load, 0..1
+var _grit_wait := 0.0
 var _rng := RandomNumberGenerator.new()
 
 var _reverb: AudioEffectReverb
@@ -119,6 +133,15 @@ func _make_players() -> void:
 
 
 func _make_music() -> void:
+	# The drill loop rides the SFX bus, not the music bus: it is the game making a
+	# sound, and it has to duck with the sound effects slider rather than with the
+	# score.
+	_drill_loop = _music_player("res://assets/audio/drill.wav")
+	if _drill_loop != null:
+		_drill_loop.bus = SFX_BUS
+		_drill_loop.volume_db = -60.0
+		_drill_loop.stop()
+
 	_bed_shallow = _music_player("res://assets/audio/bed_shallow.wav")
 	_bed_deep = _music_player("res://assets/audio/bed_deep.wav")
 	_theme = _music_player("res://assets/audio/theme.wav")
@@ -218,18 +241,45 @@ func tick(sim: Sim, dt: float) -> void:
 			want_db = -60.0                ## silence, deliberately, for the climb
 		_theme.volume_db = lerpf(_theme.volume_db, want_db, SimUtil.smooth(0.9, dt))
 
-	# The drill: one sound per bite rather than a loop, pitched by how hard the
-	# rock is, so the deep SOUNDS harder to cut.
-	_drill_heat = maxf(_drill_heat - dt, 0.0)
+	_drill(sim, dt)
 
 
-## Called when the drill actually removes something, so the sound answers the
-## work rather than the button.
-func drill_bite(hardness: float) -> void:
-	if _drill_heat > 0.0:
+## **One continuous drill, modulated.**
+##
+## `sim.dig_load` is 0 when not drilling and rises with the hardness of what is
+## under the head, and every channel in the game that sells the work reads that
+## same number: this, the particles, the haptics and the shake.
+##
+## Loud, low and slow is heavy work; quiet, high and fast is fluffy dirt. The
+## level is smoothed rather than assigned, because the load can step the moment
+## the head crosses a band boundary and a step in a loop's volume is a click.
+func _drill(sim: Sim, dt: float) -> void:
+	var want: float = sim.dig_load if sim.phase == Sim.Phase.DESCENT else 0.0
+	var digging := want > 0.0
+	_drill_level = lerpf(_drill_level, 1.0 if digging else 0.0, SimUtil.smooth(9.0, dt))
+	if _drill_loop != null:
+		# Under a whisper it is switched off rather than left running at -60 dB,
+		# so a parked ship is genuinely silent.
+		if _drill_level < 0.02:
+			if _drill_loop.playing:
+				_drill_loop.stop()
+		else:
+			if not _drill_loop.playing:
+				_drill_loop.play()
+			_drill_loop.volume_db = linear_to_db(_drill_level * (0.35 + want * 0.65)) - 7.0
+			# Heavier material drags the pitch down. The range is wide on purpose:
+			# this is the one channel that is audible with the phone in a pocket.
+			_drill_loop.pitch_scale = lerpf(1.25, 0.62, want)
+
+	# Grit on top, at a rate that falls as the material gets harder: loose dirt
+	# rattles constantly, dense rock gives a few sharp chips.
+	if not digging:
 		return
-	_drill_heat = 0.085
-	play("drill", -9.0, clampf(1.5 - hardness * 0.16, 0.55, 1.4))
+	_grit_wait -= dt
+	if _grit_wait > 0.0:
+		return
+	_grit_wait = lerpf(0.07, 0.26, want)
+	play("drill", lerpf(-15.0, -8.0, want), lerpf(1.35, 0.7, want))
 
 
 func broke(is_ore: bool, brittle: bool) -> void:
