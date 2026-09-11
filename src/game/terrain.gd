@@ -59,13 +59,17 @@ const CHUNK := 3
 
 ## Chunks rebuilt in one frame. A missing chunk is always built - a hole in the
 ## world is not something to amortise - but a merely STALE one can wait a frame.
-const BUDGET := 2
+const BUDGET := 1
+
+## And how many MISSING chunks, which is a different and more urgent thing.
+const HOLE_BUDGET := 4
 
 var _world: World
 var _material: Material
 var _chunks: Dictionary = {}          ## Vector2i(chunk) -> MeshInstance3D
 var _dirty: Dictionary = {}           ## Vector2i(chunk) -> true
-var _colour_cache: Dictionary = {}    ## Vector2i(metre) -> Color, one chunk build long
+var _colours: PackedColorArray = PackedColorArray()
+var _colour_valid: PackedByteArray = PackedByteArray()
 
 var vertex_count: int = 0     ## what the smoke test reads instead of a flush flag
 
@@ -73,6 +77,9 @@ var vertex_count: int = 0     ## what the smoke test reads instead of a flush fl
 func setup(w: World, material: Material) -> void:
 	_world = w
 	_material = material
+	_colours.resize(w.mat.size())
+	_colour_valid.resize(w.mat.size())
+	_colour_valid.fill(0)
 	for c in _chunks.values():
 		(c as Node).queue_free()
 	_chunks.clear()
@@ -84,6 +91,7 @@ func setup(w: World, material: Material) -> void:
 func touch() -> void:
 	for k in _chunks.keys():
 		_dirty[k] = true
+	_colour_valid.fill(0)
 
 
 ## Mark the chunk a change at (x, d) lands in, and a NEIGHBOUR only when the
@@ -95,6 +103,10 @@ func touch() -> void:
 ## for a change that touched one. At 36 ms a chunk that was 324 ms a tick, and a
 ## sixteen-second screenshot took five minutes to render.
 func touch_at(x: int, d: int) -> void:
+	# The metre's material can have changed with its shape, so its colour is
+	# recomputed next time it is asked for.
+	if _world.in_bounds(x, d):
+		_colour_valid[_world.idx(x, d)] = 0
 	var k := _key(x, d)
 	_dirty[k] = true
 	var lx := x - k.x * CHUNK
@@ -122,6 +134,19 @@ func _is_buried(x: int, d: int) -> bool:
 	return _world.is_solid(x, d) and _world.is_solid(x - 1, d) and _world.is_solid(x + 1, d) 		and _world.is_solid(x, d - 1) and _world.is_solid(x, d + 1)
 
 
+## Is this metre, and everything it touches, completely gone?
+func _is_void(x: int, d: int) -> bool:
+	return _empty(x, d) and _empty(x - 1, d) and _empty(x + 1, d) 		and _empty(x, d - 1) and _empty(x, d + 1)
+
+
+func _empty(x: int, d: int) -> bool:
+	if d < -Tuning.SURFACE_ROWS:
+		return true
+	if not _world.in_bounds(x, d):
+		return false
+	return _world.mean_cache[_world.idx(x, d)] <= Tuning.OPEN_FILL
+
+
 func _key(x: int, d: int) -> Vector2i:
 	return Vector2i(int(floor(float(x) / float(CHUNK))), int(floor(float(d) / float(CHUNK))))
 
@@ -142,25 +167,45 @@ func refresh(centre: Vector2i, half_w: int, half_d: int) -> bool:
 			_chunks.erase(key)
 			_dirty.erase(key)
 
-	# Nearest first, so the chunk the player is looking at is never the one that
-	# waits. A budget with no ordering is a budget that rebuilds the far corner
-	# of the window while the tunnel under the ship is stale.
-	var todo: Array[Vector2i] = []
+	# **A HOLE beats a stale chunk, however far away it is.**
+	#
+	# Sorting purely by distance starves the missing ones: the chunk under the
+	# drill is dirty every single tick and is always the nearest, so with a budget
+	# of one it wins every frame and a chunk that has just entered the window
+	# never gets built at all. The bottom half of the screen went black.
+	#
+	# So missing chunks come first, nearest first among themselves, and they get
+	# their own larger budget - a hole is a hole, and it has to close now - while
+	# a merely stale chunk is at most a frame or two out of date and nobody can
+	# see that.
+	var missing: Array[Vector2i] = []
+	var stale: Array[Vector2i] = []
 	for cd in range(lo.y, hi.y + 1):
 		for cx in range(lo.x, hi.x + 1):
 			var key := Vector2i(cx, cd)
-			if _chunks.has(key) and not _dirty.get(key, false):
-				continue
-			todo.append(key)
+			if not _chunks.has(key):
+				missing.append(key)
+			elif _dirty.get(key, false):
+				stale.append(key)
 	var here := _key(centre.x, centre.y)
-	todo.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
-		return (a - here).length_squared() < (b - here).length_squared())
+	var nearer := func(a: Vector2i, b: Vector2i) -> bool:
+		return (a - here).length_squared() < (b - here).length_squared()
+	missing.sort_custom(nearer)
+	stale.sort_custom(nearer)
 
 	var built := false
 	var done := 0
-	for key in todo:
-		if done >= BUDGET and _chunks.has(key):
-			break                       ## a stale chunk can wait; a missing one cannot
+	for key in missing:
+		if done >= HOLE_BUDGET:
+			break
+		_build_chunk(key)
+		_dirty.erase(key)
+		built = true
+		done += 1
+	done = 0
+	for key in stale:
+		if done >= BUDGET:
+			break
 		_build_chunk(key)
 		_dirty.erase(key)
 		built = true
@@ -204,7 +249,6 @@ func _build_chunk(key: Vector2i) -> void:
 
 	var any := false
 	var scale := 1.0 / float(sub)
-	_colour_cache.clear()
 
 	# **Solid rock is drawn at the METRE, and only the surface at the quarter.**
 	#
@@ -219,6 +263,13 @@ func _build_chunk(key: Vector2i) -> void:
 			if _is_buried(x, d):
 				_add_face(st, Vector2(float(x) - 0.5, float(d) - 0.5), SQUARE, 1.0)
 				any = true
+				continue
+			# And the mirror of it: a metre with nothing left in it, whose
+			# neighbours are empty too, has no crossing anywhere inside it and
+			# contours to nothing. Skipping it is worth more than skipping buried
+			# rock, because while the player is drilling most of the chunk under
+			# the ship is exactly this - the tunnel they just cut.
+			if _is_void(x, d):
 				continue
 			# **One fine cell of overlap on the low side, or the metre has a gap
 			# along its own edge.**
@@ -310,14 +361,44 @@ func _colour_at(p: Vector2) -> Color:
 			if _world.material_at(bx + ox, bd + od) == Ore.CACHE:
 				best = Vector2i(bx + ox, bd + od)
 
-	var m := _world.material_at(best.x, best.y)
+	return _metre_colour(best.x, best.y)
+
+
+## **What one METRE is coloured, memoised.**
+##
+## The colour of a metre depends on its material, its seam flag and its depth
+## band, none of which change unless the metre itself does - but working it out
+## costs a dictionary lookup, a `lightened()`, a tint multiply and three
+## `Color` constructions, and the mesh builder asks for it once per vertex.
+##
+## **This is not the per-cell colour cache that flattened the rock.** That one
+## keyed on the VERTEX position, so every vertex in a metre got one answer and
+## the triangles had nothing to interpolate. This keys on the metre that
+## `_colour_at` already chose after comparing its neighbours: two vertices a
+## centimetre apart still pick different metres and still blend across the
+## triangle between them. The sampling is unchanged; only the arithmetic behind
+## the chosen metre is remembered.
+func _metre_colour(x: int, d: int) -> Color:
+	if not _world.in_bounds(x, d):
+		return _compute_colour(x, d)
+	var i := _world.idx(x, d)
+	if _colour_valid[i] == 1:
+		return _colours[i]
+	var c := _compute_colour(x, d)
+	_colours[i] = c
+	_colour_valid[i] = 1
+	return c
+
+
+func _compute_colour(x: int, d: int) -> Color:
+	var m := _world.material_at(x, d)
 	var col: Color = MAT_COLOUR.get(m, MAT_COLOUR[Ore.ROCK])
-	if _world.is_seam(best.x, best.y):
+	if _world.is_seam(x, d):
 		col = col.lightened(SEAM_LIGHTEN)
 	# The band tint, from the WORLD'S CLASS rather than from the depth alone.
 	# Half of the four things that land on the Line, and the reason a Rime shaft
 	# is blue-white where a Cinder one smoulders.
-	var t := Classes.tint_at(_world.class_id, float(best.y))
+	var t := Classes.tint_at(_world.class_id, float(d))
 	col = Color(col.r * t.r, col.g * t.g, col.b * t.b, col.a)
 	# Alpha is how much the material glows on its own, which the shader runs on
 	# its own gentler curve so a rich seam still reads through the dark.
@@ -371,16 +452,17 @@ func _tri(a: Vector3, b: Vector3, c: Vector3, st: SurfaceTool) -> void:
 
 
 func _vert(v: Vector3, st: SurfaceTool) -> void:
-	# **Cached per metre for the length of one chunk build.** The colour is a
-	# metre-scale fact - which ore, which band, whether it is a seam - and it was
-	# being recomputed for every vertex with a two-by-two cell scan inside it.
-	# At the fine lattice that is tens of thousands of scans for a few hundred
-	# distinct answers.
-	var key := Vector2i(int(floor(v.x + 0.5)), int(floor(-v.y + 0.5)))
-	var c: Variant = _colour_cache.get(key)
-	if c == null:
-		c = _colour_at(Vector2(v.x, -v.y))
-		_colour_cache[key] = c
-	st.set_color(c)
+	# **Sampled per VERTEX. Never cached per cell, at any resolution.**
+	#
+	# This was cached per metre for one round, to save the two-by-two scan inside
+	# `_colour_at` at the fine lattice. It is the exact bug the comment on
+	# `_colour_at` was written about: every vertex in a metre gets one answer, the
+	# interpolation across the triangles has nothing left to interpolate, and the
+	# rock comes out as a grid of flat tiles. Rendering the vertex colour straight
+	# to ALBEDO showed it immediately - the picture was a chequerboard.
+	#
+	# The whole technique is that adjacent vertices can pick DIFFERENT cells and
+	# the triangle blends them. Caching by position destroys exactly that.
+	st.set_color(_colour_at(Vector2(v.x, -v.y)))
 	st.set_uv(Vector2(v.x, v.y) * UV_SCALE)
 	st.add_vertex(v)

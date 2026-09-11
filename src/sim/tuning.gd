@@ -52,10 +52,18 @@ const SURFACE_ROWS := 3           ## open air above depth 0, where the pad sits
 ## brush already accumulates continuously between rebuilds, so a finer TICK
 ## changes nothing. The limit is spatial.
 ##
-## At 4 this is a quarter-metre cell and a ratio of about 3:1. Sixteen times the
-## fill data, which is 540 KB and nothing, and sixteen times the contour, which
-## is why the terrain mesh had to become chunked in the same commit.
-const SUB := 4
+## At 3 this is a third-metre cell and a ratio of about 2.3:1, against 0.76:1
+## before: the visible step drops from a metre to a third of one. Nine times the
+## fill data, which is 300 KB and nothing, and nine times the contour, which is
+## why the terrain mesh had to become chunked in the same commit.
+##
+## **4 was measured and rejected on cost, not on looks.** The mesh rebuild while
+## drilling came to 18.1 ms a tick against a 16.7 ms frame, and 3 is 6.7. The
+## research puts genuinely continuous destruction at 18:1 and higher, which is a
+## per-pixel simulation and not something a marching-squares contour in GDScript
+## reaches at any setting; what is on offer here is a third the step size, and
+## that is what 3 buys inside the budget.
+const SUB := 3
 
 const OPEN_FILL := 1.0e-4
 
@@ -72,7 +80,14 @@ const OPEN_FILL := 1.0e-4
 ## These are not two thresholds for one fact, which is the trap this file has
 ## fallen into twice. They are one threshold each for two facts at two scales,
 ## and the metre one is derived from the fine field and never stored beside it.
-const METRE_OPEN := 0.10
+## **Derived from the lattice, not typed in.** It means "at most one and a half
+## fine cells of this metre are left", which is a statement that survives a
+## change to `SUB`; the literal 0.10 did not. At `SUB` 3 a single leftover corner
+## cell is 1/9 = 0.111 of the metre, which is over 0.10, so no metre with one
+## sliver in it ever counted as worked out - the core was never cut and no route
+## home was ever found. The same literal had been fine at `SUB` 4, where a cell
+## is 1/16.
+const METRE_OPEN := 1.5 / float(SUB * SUB)
 
 ## The isovalue the marching-squares contour crosses. Its value is decided at M2
 ## against the corner-averaging scheme and it has nothing to do with whether the

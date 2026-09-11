@@ -156,6 +156,8 @@ func _check_the_lamp_is_one_light(main) -> void:
 	# And the diagnostic is off in the shipped picture.
 	_t.eq(int(haze.get_shader_parameter("debug_term")), 0,
 		"the air is rendering a debug term instead of the game")
+	_t.eq(int(rock.get_shader_parameter("debug_term")), 0,
+		"the rock is rendering a debug term instead of the game")
 
 	# The rock picks its normal-map projection from where the front face sits in
 	# z, because the mesh's smoothed normals cannot tell a wall from a face. That

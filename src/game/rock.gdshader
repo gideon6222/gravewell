@@ -75,6 +75,10 @@ uniform bool has_normal = false;
 // so `main.gd` sets it from the constant rather than the shader guessing.
 uniform float face_z = 0.5;
 
+// Term isolation, the same tool the air shader keeps. A shader has no print, so
+// the screen is its only readout.
+uniform int debug_term : hint_range(0, 6) = 0;
+
 // How far toward the camera the lamp sits. A light exactly in the rock plane
 // reaches none of the faces the camera can see.
 uniform float lamp_height = 1.6;
@@ -222,6 +226,13 @@ void fragment() {
 		float g = sqrt(max(f.g, 0.12)) * clamp(1.0 - dist / (reach * 2.4), 0.06, 1.0);
 		base += COLOR.rgb * glow * g * 1.5;
 	}
+
+	if (debug_term == 1) { base = vec3(f.g); }
+	else if (debug_term == 2) { base = vec3(f.r); }
+	else if (debug_term == 3) { base = COLOR.rgb; }
+	else if (debug_term == 4) { base = vec3(lit); }
+	else if (debug_term == 5) { base = vec3(diffuse - 0.35) * 1.6; }
+	else if (debug_term == 6) { base = n * 0.5 + 0.5; }
 
 	ALBEDO = base;
 }

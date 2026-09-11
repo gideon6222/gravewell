@@ -82,6 +82,13 @@ var open_cache: PackedByteArray = PackedByteArray()
 ## rebuild's cost. Same rule: derived in `_resettle`, written nowhere else.
 var solid_cache: PackedByteArray = PackedByteArray()
 
+## And how much of the metre is left, which is what the contour and the vertex
+## colour read. `_mean_fill` loops sixteen fine cells; the mesh builder asks it
+## four times per vertex and there are eighteen thousand vertices in a window, so
+## leaving it uncached measured 50 ms a tick. Same rule as the other two: written
+## only by `_resettle`.
+var mean_cache: PackedFloat32Array = PackedFloat32Array()
+
 const FWIDTH := WIDTH * Tuning.SUB
 
 ## Where the core chamber sits. Offset per planet so a straight dive down the
@@ -132,7 +139,7 @@ func fill_at(x: int, d: int) -> float:
 		return 0.0
 	if not in_bounds(x, d):
 		return 1.0
-	return _mean_fill(x, d)
+	return mean_cache[idx(x, d)]
 
 
 # ── the fine field, and the coarse answers derived from it ────────────────
@@ -277,6 +284,7 @@ func is_open(x: int, d: int) -> bool:
 func _resettle(x: int, d: int) -> void:
 	var mean := _mean_fill(x, d)
 	var i := idx(x, d)
+	mean_cache[i] = mean
 	open_cache[i] = 1 if mean <= Tuning.METRE_OPEN else 0
 	solid_cache[i] = 1 if mean >= 1.0 - 1.0e-6 else 0
 
@@ -334,6 +342,7 @@ func _generate() -> void:
 	fine.resize(n * Tuning.SUB * Tuning.SUB)
 	open_cache.resize(n)
 	solid_cache.resize(n)
+	mean_cache.resize(n)
 
 	# 1. Rock, ore and seams. Ore rolls on SEED_ORE and the seam texture rolls
 	#    on SEED_SEAM, and the seam roll is read once and used for BOTH the
@@ -583,6 +592,7 @@ func carve(a: Vector2, b: Vector2, radius: float, feather: float, hp: float) -> 
 	# still buys the same volume it always did, so the plow's speed, the power
 	# bill and the yields are all untouched by this.
 	var broke_metres: Array[Vector2i] = []
+	var touched: Array[Vector2i] = []
 	for i in range(cells.size()):
 		var k: int = cells[i]
 		var fx := k % FWIDTH - Tuning.HALF_WIDTH * Tuning.SUB
@@ -602,16 +612,25 @@ func carve(a: Vector2, b: Vector2, radius: float, feather: float, hp: float) -> 
 		fine[k] -= removed
 		mark_dirty(x, d)
 		_resettle(x, d)
-		out["cut"] = float(out["cut"]) + removed * hardness / float(Tuning.SUB * Tuning.SUB)
-		if fine[k] > Tuning.OPEN_FILL:
-			continue
-		fine[k] = 0.0
 		var metre := Vector2i(x, d)
-		if not broke_metres.has(metre) and is_open(x, d) and mat[idx(x, d)] != Ore.AIR:
-			broke_metres.append(metre)
+		if not touched.has(metre):
+			touched.append(metre)
+		out["cut"] = float(out["cut"]) + removed * hardness / float(Tuning.SUB * Tuning.SUB)
+		if fine[k] <= Tuning.OPEN_FILL:
+			fine[k] = 0.0
+			_resettle(x, d)
+		# **Ask the METRE, not the fine cell.** The break used to fire only when a
+		# fine cell landed exactly on zero, which misses the case the whole
+		# threshold exists for: a metre can cross into "worked out" because the
+		# sum of what is left fell under the line, with no single cell hitting
+		# zero on that tick. The core was the casualty - it was cut to nothing,
+		# never paid, and the extraction never started.
 
-	# A metre pays when the last of it is gone. Everything about what a cell is
-	# WORTH is still decided in one place.
+	# A metre pays when what is left of it falls under the line. Everything about
+	# what a cell is WORTH is still decided in one place.
+	for c in touched:
+		if is_open(c.x, c.y) and mat[idx(c.x, c.y)] != Ore.AIR:
+			broke_metres.append(c)
 	for c in broke_metres:
 		var res := _break_metre(c.x, c.y)
 		out["broke"] = int(out["broke"]) + 1

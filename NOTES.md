@@ -886,3 +886,103 @@ three of the first faults were invisible in the aggregate: the probe reported a
 healthy 1.55 m/s mean over 200 m, which is an average across five bands of a
 descent he has never once completed. The first forty metres are what he plays,
 and they were flat, silent and twice too fast.
+
+## 0.11.0: a third-metre fill field (2026-09-11)
+
+His words on 0.10.1: *"it looks like it am still breaking through too quickly. im
+not sure if the ticks need to be smaller or of you can make the rock break into
+smaller chunks. can you do some research and see what the best option is."*
+
+### 31. The mismatch was between the granularity and the RENDERING style
+
+Research, with the ratio of character width to terrain cell:
+
+| game | ratio | reads as |
+|---|---|---|
+| Worms, Liero | ~18:1 | continuous erosion |
+| Noita | ~32:1 | continuous |
+| Terraria | ~0.5:1 | blocky, on purpose |
+| SteamWorld Dig | ~1:1 | blocky, by its designer's own account |
+| **Gravewell before** | **0.76:1** | blocky, drawn as smooth curves |
+
+Block games get away with 1:1 because their whole visual grammar is squares.
+Gravewell draws smooth interpolated contours, which promises Worms and delivered
+Dig Dug. **That is the complaint, not the metres a second.**
+
+It also settles which of his two mechanisms was right: the brush already
+accumulates continuously between rebuilds, so a finer TICK changes nothing at
+all. The limit is spatial.
+
+Measured before: the face receded 0.184 m per tenth of a second in steps ranging
+0.000 to 0.360, at **2.43 ship-widths a second**, with facets a metre across
+snapping between frames. After: 0.134 m, range 0.081 to 0.190, **1.77
+ship-widths a second**, on a 2.28:1 lattice.
+
+### 32. Only the SHAPE needed to get finer
+
+`fine` is the one array below a metre. Material, seams, hardness, yields and the
+whole light solve stay on the metre, because none of them is a shape: an ore vein
+is a metre-scale fact and so is a lit tunnel. Everything coarse derives from the
+fine field in one direction through three caches that only `_resettle` writes.
+
+`SUB` is 3 and not 4: 4 measured at 18.1 ms of mesh a tick against a 16.7 ms
+frame, and 3 is 6.7. Genuinely continuous destruction is a per-pixel simulation
+and not something a marching-squares contour in GDScript reaches at any setting.
+
+### 33. Faults found on the way, each of which took a measurement
+
+- **The fine lattice was offset half a metre from the coarse one.** Metre `x` is
+  centred on `x`, so its fine cells start at `x - 0.5` and not at `x`. The ship
+  rode the left edge of every block it was clearing (`0.02 0.16 0.57 1.00` across
+  a carved metre) and no metre in the game ever became passable.
+- **A round brush cannot clear the corners of a square metre.** So "worked out"
+  became a metre-scale question with its own threshold, derived from `SUB` rather
+  than typed in: at `SUB` 3 one leftover corner cell is 1/9 = 0.111 of the metre,
+  and the literal 0.10 that had been fine at `SUB` 4 meant the core was never cut
+  and no route home was ever found.
+- **The break fired only when a fine cell hit exactly zero**, which misses the
+  case the threshold exists for: a metre crosses the line because the sum of what
+  is left fell under it, with no single cell landing on zero that tick. Ask the
+  METRE after the carve, not the cell during it.
+- **Collision now tests `CONTOUR_ISO`, the isovalue the surface is DRAWN at**, so
+  the ship is stopped by exactly what it can see. That meant the plow had to
+  become an explicit speed limit: rock stops blocking long before a metre is
+  finished, and the ship was flying through the core at seven metres a second.
+- **The escape from being embedded went through five measures.** A metre overlap
+  count, a metre overlap area, a fine overlap count and a five-point sample
+  including the hull's CORNERS all had a flat spot or read the walls of a
+  one-metre shaft. What works: nine points inset in X and out to the edge in Y,
+  non-strict, guarded by a buried check.
+
+### 34. The cost, and where it went
+
+| | before | after |
+|---|---|---|
+| light solve, open window | 46.9 ms | 27.4 ms |
+| mesh, whole window | 31 ms per cell change | 7.5 ms cold, budgeted |
+| mesh while drilling | n/a | 6.7 ms a tick, worst 11.2 |
+| descent, 200 m of cutting | 189 s | 257 s |
+
+The flood's frontier was a linear scan, which is quadratic and priced a finer
+grid at 438 ms; a binary heap plus the derived caches fixed that. The terrain is
+chunked at three metres, one stale chunk and up to four MISSING chunks a frame,
+nearest first. **Missing has to outrank stale**: sorting purely by distance
+starves the holes, because the chunk under the drill is dirty every tick and is
+always nearest, and the bottom half of the screen went black.
+
+Buried metres are drawn as one quad rather than nine contour cells, and the
+terrain window came down from 15x24 to 8x13 - the camera sees about 6.6 m by
+3.0 m, so the old window was eleven times the area of the frame.
+
+### 35. And a cache that re-created a documented bug
+
+The colour was memoised per METRE keyed on the vertex position, to save the scan
+inside `_colour_at`. That is exactly what the comment above `_colour_at` was
+written about: every vertex in a metre gets one answer, the triangles have
+nothing left to interpolate, and the rock comes out as a grid of flat tiles.
+Rendering the vertex colour straight to ALBEDO showed it in one frame after four
+layer toggles had ruled out the haze, the post, the buried quads and shadows.
+
+The memo now keys on the metre `_colour_at` CHOSE after comparing its
+neighbours, so two vertices a centimetre apart still pick different metres and
+still blend. Only the arithmetic behind the chosen metre is remembered.
