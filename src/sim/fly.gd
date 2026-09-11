@@ -56,6 +56,28 @@ var plow_speed := 0.0
 ## along the path actually travelled rather than stamping it at a point.
 var last_pos := Vector2.ZERO
 
+## Where the escape samples the material, as offsets from the hull's centre.
+##
+## **Inset in X, out to the edge in Y**, and the asymmetry is the whole point. A
+## tunnel is a metre wide and the hull is 0.76, so a sample at the box's left or
+## right edge reads the wall beside the ship and swamps everything else: climbing
+## out of the core chamber measured as burrowing in, and a ship carrying the core
+## sat still while the collapse took it. There is no such wall above or below, and
+## Y has to reach the box's edge or the measure cannot see the FLOOR the plow has
+## pushed the hull into - which is the other way this got stuck.
+const ESCAPE_X := 0.30
+const ESCAPE_Y := 0.36
+
+## How much material can be under the hull before the ship counts as BURIED and
+## the escape is refused outright. Plowing sits around 0.36 of a full cell and
+## solid rock is 1.0, so this is the line between "backing out of my own tunnel"
+## and "swimming through the planet".
+const ESCAPE_BURIED := 0.55
+
+## How much material under the hull counts as "in the cut" rather than in open
+## air, for the speed limit above.
+const IN_MATERIAL := 0.05
+
 
 func _init(w: World) -> void:
 	world = w
@@ -87,6 +109,23 @@ func step(dir: Vector2, load_kg: float, density: float, dt: float) -> void:
 
 	if held:
 		_lane_pull(dir)
+
+	# **You cannot fly faster than you can cut, while you are in the cut.**
+	#
+	# Collision is against the DRAWN surface, so a cell is passable once it is
+	# half gone - which is right, because that is where the wall is. But it also
+	# means the rock stops blocking the hull long before the metre is finished,
+	# and the ordinary velocity then carries the ship through at flying speed:
+	# measured, it drove straight through a planet's core at seven metres a second
+	# and the extraction never started.
+	#
+	# So while the drill is engaged and the hull is in material, the plow's rate
+	# is the speed limit whatever the collision says. Out in open air the load is
+	# zero and nothing here fires.
+	if plow_speed > 0.0 and _load_under(pos) > IN_MATERIAL:
+		var speed := vel.length()
+		if speed > plow_speed:
+			vel = vel * (plow_speed / speed)
 
 	_move(dt)
 
@@ -150,30 +189,39 @@ func _axis(axis: int, delta: float) -> void:
 		pos = want
 		return
 
-	# **Already embedded? Then a move that gets you OUT is allowed.**
+	# **Brushing slivers? Then push through them.**
 	#
-	# Plowing means the hull ends its tick inside material the drill is still
-	# chewing: that is the mechanic, not a fault. But the ordinary resolve has
-	# nothing to push back against when the START position is illegal too, so it
-	# refuses every direction and the ship is wedged in its own tunnel the moment
-	# the player lets go of the drill. Measured: it could not climb a shaft it had
-	# just cut.
+	# Plowing leaves the hull inside material it is still cutting, and the round
+	# brush cannot finish the corners of a square metre, so a ship that stops
+	# drilling is routinely touching a few quarter-metre slivers it never
+	# completed. The ordinary resolve has nothing to push against when the START
+	# position is illegal, so it refuses every direction and wedges the ship in
+	# its own tunnel.
 	#
-	# Two things keep this from being a way through rock, and the first version
-	# of it was neither:
+	# Two bounds, and three earlier versions of this each failed on one of them:
 	#
-	# **Only while the drill is off.** While plowing, the plow is the only thing
-	# that moves the hull into rock, at the speed the material allows. Letting
-	# velocity through as well let a scripted miner cover 37 m in ten seconds and
-	# leave the whole shaft standing behind it, unpaid for.
+	# **Only while the drill is off.** Letting velocity through as well let a
+	# miner cover 37 m in ten seconds with the shaft still standing behind it.
 	#
-	# **Strictly out, on a CONTINUOUS measure.** An overlap count is flat across
-	# most of a cell, so "no deeper" reads as "sideways is free". Summing the
-	# remaining fill under the hull moves on every millimetre, so `<` is a real
-	# constraint and it still cannot stall.
+	# **Only while LIGHTLY embedded.** A hull mostly inside rock is buried, not
+	# brushing something, and letting that move is a way through the planet. The
+	# box covers about sixteen fine cells, so a third of them is the line.
+	#
+	# The measure is the fine overlap COUNT and not the interpolated fill it was
+	# for one round: sampling the field at the hull's corners in a one-metre shaft
+	# reads the walls either side, so climbing OUT measured as going deeper in and
+	# a ship carrying the core sat still while the collapse took it.
 	if plow_speed <= 0.0:
-		var here := _penetration(pos)
-		if here > 0.0 and _penetration(want) < here:
+		var here := _overlap(pos)
+		var load := _load_under(pos)
+		# **Not strictly less, because the thing blocking can be smaller than the
+		# measure can see.** Two quarter-metre slivers left in the corners of the
+		# hull box move the overlap without moving a nine-point average at all,
+		# and a strict test then refuses every direction: a ship carrying the core
+		# sat still at 197 m while the collapse took it, with a load of 0.0123
+		# either way. The buried check is what keeps "no worse" from becoming a
+		# way through solid rock, where the load is 1.0 and this never fires.
+		if here > 0 and load < ESCAPE_BURIED 				and _overlap(want) <= here and _load_under(want) <= load + 1.0e-6:
 			pos = want
 			return
 
@@ -200,42 +248,52 @@ func _blocked(p: Vector2) -> bool:
 	return _overlap(p) > 0
 
 
-## Does the hull box at `p` overlap any cell the world calls solid?
+## **How many QUARTER-metre cells the hull box overlaps that still hold rock.**
+##
+## Collision reads the fine field directly, because "can the ship fit" is a
+## question at the scale of the ship and the ship is three quarters of a metre.
+## Asking it per metre was what made the hull stop dead against a metre it had
+## already taken to 94%, with a clear path through the middle of it.
+##
+## The metre-scale `World.is_open` answers a different question - has this metre
+## been worked out, for the light and the yields - and the two are allowed to
+## disagree about a metre with slivers left in it. The ship squeezes past them
+## and they are still drawn, because both come from the same fine field.
 func _overlap(p: Vector2) -> int:
 	var h := Tuning.SHIP_HALF
-	var x0 := int(floor(p.x - h + 0.5))
-	var x1 := int(floor(p.x + h + 0.5))
-	var d0 := int(floor(p.y - h + 0.5))
-	var d1 := int(floor(p.y + h + 0.5))
+	var x0 := int(floor(World.fine_index(p.x - h) + 0.5))
+	var x1 := int(floor(World.fine_index(p.x + h) + 0.5))
+	var d0 := int(floor(World.fine_index(p.y - h) + 0.5))
+	var d1 := int(floor(World.fine_index(p.y + h) + 0.5))
 	var n := 0
 	for d in range(d0, d1 + 1):
 		for x in range(x0, x1 + 1):
-			if not world.is_open(x, d):
+			if not world.is_clear(x, d):
 				n += 1
 	return n
 
 
-## **How much unbroken rock is under the hull box at `p`, as a continuous
-## quantity.** Remaining fill weighted by how much of each cell the box covers.
+## **How much material is under the hull**, as a continuous number.
 ##
-## `_blocked` is the same question asked as a yes or no, and that is the right
-## question for "can I move here". This one answers "am I getting OUT", which is
-## a different question and needs an answer that changes on every millimetre: a
-## count of overlapped cells is flat across most of a cell, so a ship escaping on
-## it reads sideways motion as free.
-func _penetration(p: Vector2) -> float:
-	# Sampled BETWEEN cells, at the hull's corners and its middle. An overlap
-	# area was the first version and it has a flat spot exactly where it matters:
-	# the hull is 0.76 m and a cell is 1.0 m, so a hull entirely inside one cell
-	# covers the same area wherever it sits in it, the measure does not move, and
-	# the ship stops dead half a cell from open air. Measured: it escaped 0.2 m
-	# and then sat there with its velocity zeroed for two seconds.
-	var h := Tuning.SHIP_HALF
-	return world.fill_between(p) \
-		+ world.fill_between(p + Vector2(-h, -h)) \
-		+ world.fill_between(p + Vector2(h, -h)) \
-		+ world.fill_between(p + Vector2(-h, h)) \
-		+ world.fill_between(p + Vector2(h, h))
+## A nine-point average of the fine field across the box, sampled bilinearly, so
+## it moves on every millimetre the ship does. That is the whole requirement:
+## three earlier versions of this measure each had a flat spot, and a measure
+## that does not move is a ship that does not move.
+##
+##   - an overlap COUNT of whole metres was flat across most of a metre
+##   - an overlap AREA was flat too, because the hull is smaller than a metre
+##   - a count of FINE cells is flat between quarter-metre steps
+##   - five points including the hull's CORNERS read the walls of a one-metre
+##     shaft, so climbing out of the core chamber measured as burrowing in
+##
+## Deep inside solid rock every sample reads 1.0 whichever way the ship goes, so
+## this never becomes a way through the planet: strictly less, or no move.
+func _load_under(p: Vector2) -> float:
+	var total := 0.0
+	for j in [-ESCAPE_Y, 0.0, ESCAPE_Y]:
+		for i in [-ESCAPE_X, 0.0, ESCAPE_X]:
+			total += world.fill_between(p + Vector2(i, j))
+	return total / 9.0
 
 
 ## Where the drill tip is, for drawing the beam and pointing the hull.

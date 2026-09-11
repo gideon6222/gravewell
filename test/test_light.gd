@@ -12,7 +12,7 @@ func _carved(cells: Array) -> World:
 	for c in cells:
 		var v: Vector2i = c
 		if w.in_bounds(v.x, v.y):
-			w.fill[w.idx(v.x, v.y)] = 0.0
+			w.set_fill(v.x, v.y, 0.0)
 			w.mat[w.idx(v.x, v.y)] = Ore.AIR
 	return w
 
@@ -272,7 +272,7 @@ func test_the_shadow_is_a_glow_and_not_a_fan_of_beams(t: TestHarness) -> void:
 				continue
 			if r > 2.5 and r < 7.0 and (absi(x) * 5 + absi(d) * 3) % 7 == 0:
 				continue                       ## a pillar, left standing
-			w.fill[w.idx(x, d)] = 0.0
+			w.set_fill(x, d, 0.0)
 			w.mat[w.idx(x, d)] = Ore.AIR
 
 	var from := Vector2(float(cx), float(cd))

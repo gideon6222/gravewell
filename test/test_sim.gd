@@ -254,10 +254,10 @@ func _at_the_core(seed_value: int) -> Sim:
 	# Cut a shaft from the surface to the chamber, so there is a real route out
 	# and the fixture is testing the extraction rather than a sealed pocket.
 	for d in range(-1, cd + 1):
-		sim.world.fill[sim.world.idx(sim.world.core_x, d)] = 0.0
+		sim.world.set_fill(sim.world.core_x, d, 0.0)
 		sim.world.mat[sim.world.idx(sim.world.core_x, d)] = Ore.AIR
 	sim.world.mat[sim.world.idx(sim.world.core_x, cd)] = Ore.CORE
-	sim.world.fill[sim.world.idx(sim.world.core_x, cd)] = 1.0
+	sim.world.set_fill(sim.world.core_x, cd, 1.0)
 	sim.flight.pos = Vector2(float(sim.world.core_x), float(cd) - 1.2)
 	return sim
 
@@ -375,7 +375,7 @@ func test_a_collapse_that_would_seal_you_in_is_refused(t: TestHarness) -> void:
 	var w := World.new(33)
 	# A one-cell-wide shaft: every cell in it is the only way out.
 	for d in range(-1, 30):
-		w.fill[w.idx(0, d)] = 0.0
+		w.set_fill(0, d, 0.0)
 		w.mat[w.idx(0, d)] = Ore.AIR
 	t.gt(float(w.route_out(0, 25)), 0.0, "the fixture has a way out to begin with")
 
@@ -387,7 +387,7 @@ func test_a_collapse_that_would_seal_you_in_is_refused(t: TestHarness) -> void:
 	# And the guard is not vacuous: a collapse that does NOT seal must succeed,
 	# or the test above passes because collapse never does anything.
 	for d in range(-1, 30):
-		w.fill[w.idx(1, d)] = 0.0
+		w.set_fill(1, d, 0.0)
 		w.mat[w.idx(1, d)] = Ore.AIR
 	t.ok(w.collapse(0, 10, 0, 25), "a collapse beside a second route is allowed")
 	t.ok(not w.is_open(0, 10), "and it actually filled the cell")

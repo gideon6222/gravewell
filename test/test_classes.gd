@@ -52,10 +52,10 @@ func test_rime_carries_light_further_round_a_corner(t: TestHarness) -> void:
 	for cls in [Classes.CINDER, Classes.RIME]:
 		var w := World.new(12, cls)
 		for d in range(20, 41):
-			w.fill[w.idx(0, d)] = 0.0
+			w.set_fill(0, d, 0.0)
 			w.mat[w.idx(0, d)] = Ore.AIR
 		for x in range(1, 10):
-			w.fill[w.idx(x, 34)] = 0.0
+			w.set_fill(x, 34, 0.0)
 			w.mat[w.idx(x, 34)] = Ore.AIR
 		var f := Light.flood(w, 0, 30)
 		reach[cls] = Light.at(f, 9, 4)

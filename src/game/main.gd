@@ -572,9 +572,18 @@ func _sync_camera(dt: float) -> void:
 ## so it runs every frame.
 func _redraw_world() -> void:
 	var cell := Vector2i(int(roundf(sim.flight.pos.x)), int(roundf(sim.flight.pos.y)))
+	# **The renderer asks the simulation what changed shape, rather than guessing
+	# from where the ship is.** Crossing a metre changes no rock at all; the drill
+	# changes a metre or two every tick. With a chunked mesh the difference is the
+	# whole cost: rebuilding the window on a cell change was 31 ms, and rebuilding
+	# the chunk the drill is in is a fraction of a frame.
+	var rect := sim.world.take_dirty()
+	if rect.size() == 2:
+		for d in range(rect[0].y, rect[1].y + 1):
+			for x in range(rect[0].x, rect[1].x + 1):
+				_terrain.touch_at(x, d)
 	if cell != _last_cell:
 		_last_cell = cell
-		_terrain.touch()
 		_field.touch()
 	_terrain.refresh(cell, HALF_W, HALF_D)
 	_field.refresh(sim.world, cell)

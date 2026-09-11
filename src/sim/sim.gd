@@ -320,7 +320,7 @@ func _hardness_under_head(dir: Vector2) -> float:
 	for p in [flight.pos, flight.pos + d.normalized() * (Tuning.SHIP_HALF + 0.12)]:
 		var x := int(roundf(p.x))
 		var dd := int(roundf(p.y))
-		if not world.in_bounds(x, dd) or world.fill[world.idx(x, dd)] <= Tuning.OPEN_FILL:
+		if not world.in_bounds(x, dd) or world.is_open(x, dd):
 			continue
 		var mm: int = world.mat[world.idx(x, dd)]
 		# **The same three terms `World.cut` charges**, so the speed the hull

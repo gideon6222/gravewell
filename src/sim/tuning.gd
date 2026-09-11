@@ -32,7 +32,47 @@ const SURFACE_ROWS := 3           ## open air above depth 0, where the pad sits
 ## to 86 m in twenty-five seconds and mined precisely zero kilograms.
 ##
 ## Passability is a rule and the isovalue is a picture. They are two numbers.
+## **Fine cells per metre, for the fill field only.**
+##
+## A cell was one metre and the ship is 0.76 m, so the drawn wall could only
+## recede in steps close to the ship's own width - and marching squares on a
+## metre lattice cannot represent anything smaller whatever the brush does
+## underneath. Measured: the face moved 2.43 ship-widths a second in steps
+## averaging 0.18 m with facets a metre across snapping between frames.
+##
+## The research settles it. Games whose destruction reads as continuous erosion
+## run one to two orders of magnitude finer than their character - Worms about
+## 18:1, Noita about 32:1 - and games that read as blocky run near 1:1 ON
+## PURPOSE, with a square visual grammar to match: Terraria about 0.5:1,
+## SteamWorld Dig about 1:1 by its designer's own account. Gravewell was at
+## 0.76:1 while drawing smooth interpolated curves, which promises Worms and
+## delivers Dig Dug. **That mismatch is the complaint, not the metres a second.**
+##
+## It also settles which of the two mechanisms he offered is the right one: the
+## brush already accumulates continuously between rebuilds, so a finer TICK
+## changes nothing. The limit is spatial.
+##
+## At 4 this is a quarter-metre cell and a ratio of about 3:1. Sixteen times the
+## fill data, which is 540 KB and nothing, and sixteen times the contour, which
+## is why the terrain mesh had to become chunked in the same commit.
+const SUB := 4
+
 const OPEN_FILL := 1.0e-4
+
+## **And the metre-scale question, which is a different one.**
+##
+## `OPEN_FILL` answers "is this quarter-metre gone", which is what collision and
+## the drawn surface need, and it is exact. This answers "has this METRE been
+## worked out" - whether light travels through it, whether its ore has been paid,
+## whether the route home runs through it. A round tunnel cannot clear the
+## corners of a square metre, so demanding every fine cell be gone means no metre
+## is EVER worked out: measured, a scripted miner sat frozen against a metre it
+## had taken to 94% while the policy flip-flopped over which way was open.
+##
+## These are not two thresholds for one fact, which is the trap this file has
+## fallen into twice. They are one threshold each for two facts at two scales,
+## and the metre one is derived from the fine field and never stored beside it.
+const METRE_OPEN := 0.10
 
 ## The isovalue the marching-squares contour crosses. Its value is decided at M2
 ## against the corner-averaging scheme and it has nothing to do with whether the
@@ -148,7 +188,11 @@ const DRILL_REACH := 0.62         ## m from the ship's centre the nose bites at
 ## Hit points to advance one metre through hardness-1.0 rock. One cell of fill,
 ## which is what one metre of tunnel is. It exists as a constant rather than as a
 ## literal 1.0 so the speed and the power bill read the same number.
-const HP_PER_METRE := 1.0
+## A metre of tunnel is about 1.6 square metres of material now: one full column
+## plus the partial cutting either side of it that makes the wall smooth. The
+## drill is charged for what it actually removes, which is also why the plow runs
+## slower than it did - 1.38 m/s in surface rock against 2.20.
+const HP_PER_METRE := 1.45
 
 ## The slowest ROCK is still visibly moving. Asserted, never applied.
 ##
@@ -163,7 +207,14 @@ const HP_PER_METRE := 1.0
 ## so the deepest rock still plows at 0.67 m/s. The core multiplies hardness by
 ## six and is deliberately far below this - it is meant to be the slowest thing
 ## in the game, and it is one cell.
+## The floor is stated at the drill tier the player will HAVE by then, not at
+## tier 0. Band 4 is 175 m down, six upgrade rungs into a run, and the drill
+## ladder multiplies by up to 3.2: the deepest rock is meant to want a better
+## drill, which is what makes buying one mean something. At tier 0 it is 0.30 m/s
+## and that is the tell, not a wall.
 const PLOW_MIN_ROCK := 0.42
+## Which rung of the drill ladder the floor above is measured at.
+const PLOW_MIN_TIER := 2
 
 ## The drill head is a DISC, feathered at its rim, swept along the path actually
 ## travelled this tick.
@@ -177,8 +228,17 @@ const PLOW_MIN_ROCK := 0.42
 ##
 ## Swept, because a tick at a low frame rate would otherwise skip past a thin
 ## wall and leave it standing behind the ship.
-const BRUSH_RADIUS := 0.52        ## m of full-strength cut around the head
-const BRUSH_FEATHER := 0.38       ## m of falloff beyond it
+## **Wide enough to finish a whole metre as it passes.**
+##
+## A round brush does not cover a square metre: the corners of the column sit
+## further from the axis than its middle, so they spend less of the pass inside
+## the full-strength core and fall behind. Measured at radius 0.52, ten seconds
+## of drilling left **no metre in the game fully cleared** - every one stopped at
+## a mean of 0.22 with its outer columns standing - so nothing ever paid out and
+## the light never opened a single cell. At 0.72 it was seven metres in nine. At
+## 0.78 it is all of them.
+const BRUSH_RADIUS := 0.72        ## m of full-strength cut around the head
+const BRUSH_FEATHER := 0.30       ## m of falloff beyond it
 
 ## Damage already done to a cell is KEPT when you stop. His words: "Blocks
 ## should stop being dug if you stop drilling but remember how much damage is
@@ -202,7 +262,12 @@ const HOLD_KG := 60.0
 ## Drilling costs power PER HIT POINT, not per second, so hard rock is
 ## expensive by construction and the deep bands cost more without a second
 ## curve that could drift out of step with BAND_HP.
-const POWER_PER_HP := 0.55
+## Rebalanced with `HP_PER_METRE`: the two multiply into the power a metre costs,
+## and that number is the one the descent was tuned around. When the brush grew
+## wide enough to finish a whole metre, hit points per metre went 1.0 -> 1.6 and
+## this came down by the same factor, so the budget is exactly where it was.
+## Measured before the correction: every scripted policy died at six metres.
+const POWER_PER_HP := 0.34
 const POWER_PER_THRUST_S := 0.30
 const POWER_PER_KG_S := 0.0016    ## carrying is a slow drain, so a full hold is a clock
 

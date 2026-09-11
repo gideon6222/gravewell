@@ -1,5 +1,5 @@
 class_name Terrain
-extends MeshInstance3D
+extends Node3D
 
 ## The rock, drawn from the contour the simulation solves.
 ##
@@ -38,69 +38,244 @@ const MAT_COLOUR := {
 ## different rock from a distance, not as a tint you only see up close.
 const SEAM_LIGHTEN := 0.30
 
+## **The mesh is built in chunks, and only the dirty ones are rebuilt.**
+##
+## One mesh over the whole visible window cost 31 ms to rebuild and was rebuilt
+## every time the ship crossed a metre. At `Tuning.SUB` = 4 the contour has
+## sixteen times the cells and would be rebuilt four times as often, which priced
+## the same whole-window rebuild at about 500 ms. Chunks turn that into "rebuild
+## the six metres the drill actually touched", which is what makes a finer
+## lattice affordable at all.
+##
+## Three metres is a size, not a guess: the brush reaches under a metre, so a
+## tick dirties one chunk and occasionally two, and nine square metres of fine
+## contour is a few milliseconds. At six it measured 13 ms a tick while drilling,
+## which is most of a frame for rock that had barely changed.
+##
+## `BUDGET` is the second half of that: no more than this many chunks are rebuilt
+## in one frame, and the rest wait. A chunk a frame behind is invisible, and a
+## frame that stalls is not.
+const CHUNK := 3
+
+## Chunks rebuilt in one frame. A missing chunk is always built - a hole in the
+## world is not something to amortise - but a merely STALE one can wait a frame.
+const BUDGET := 2
+
 var _world: World
-var _mesh := ArrayMesh.new()
-var _built_at := Vector2i(9999, 9999)
-var _dirty := true
+var _material: Material
+var _chunks: Dictionary = {}          ## Vector2i(chunk) -> MeshInstance3D
+var _dirty: Dictionary = {}           ## Vector2i(chunk) -> true
+var _colour_cache: Dictionary = {}    ## Vector2i(metre) -> Color, one chunk build long
 
 var vertex_count: int = 0     ## what the smoke test reads instead of a flush flag
 
 
 func setup(w: World, material: Material) -> void:
 	_world = w
-	mesh = _mesh
-	material_override = material
+	_material = material
+	for c in _chunks.values():
+		(c as Node).queue_free()
+	_chunks.clear()
+	_dirty.clear()
 
 
-## Mark the mesh stale. Called on every dig, and on a change of planet.
+## Mark EVERYTHING stale. A change of planet, or anything that can move rock
+## outside the drill's own reach.
 func touch() -> void:
-	_dirty = true
+	for k in _chunks.keys():
+		_dirty[k] = true
 
 
-## Rebuild if the ship has moved to a new cell or the rock has changed. Returns
-## true if it actually rebuilt, so the caller can keep the light field in step
-## without a second notion of when things changed.
+## Mark the chunk a change at (x, d) lands in, and a NEIGHBOUR only when the
+## change is against a shared edge.
+##
+## A chunk's contour reads one cell past its own edge, so a carve on a boundary
+## does change the chunk next door - but marking the whole three-by-three
+## neighbourhood every time, which is what this did first, rebuilds nine chunks
+## for a change that touched one. At 36 ms a chunk that was 324 ms a tick, and a
+## sixteen-second screenshot took five minutes to render.
+func touch_at(x: int, d: int) -> void:
+	var k := _key(x, d)
+	_dirty[k] = true
+	var lx := x - k.x * CHUNK
+	var ld := d - k.y * CHUNK
+	if lx == 0:
+		_dirty[Vector2i(k.x - 1, k.y)] = true
+	elif lx == CHUNK - 1:
+		_dirty[Vector2i(k.x + 1, k.y)] = true
+	if ld == 0:
+		_dirty[Vector2i(k.x, k.y - 1)] = true
+	elif ld == CHUNK - 1:
+		_dirty[Vector2i(k.x, k.y + 1)] = true
+
+
+## The unit square, for a metre that is drawn whole. A `static var` and not a
+## `const`, because a PackedVector2Array literal is not a constant expression in
+## GDScript and the parse error it raises takes the whole script down.
+static var SQUARE := PackedVector2Array([Vector2(0, 0), Vector2(1, 0), Vector2(1, 1), Vector2(0, 1)])
+
+
+## Is this metre deep enough inside solid rock that its surface is a flat square?
+## Its own fine cells full, and the fine cells facing it across each edge full
+## too, or the contour would have had a crossing to draw on that edge.
+func _is_buried(x: int, d: int) -> bool:
+	return _world.is_solid(x, d) and _world.is_solid(x - 1, d) and _world.is_solid(x + 1, d) 		and _world.is_solid(x, d - 1) and _world.is_solid(x, d + 1)
+
+
+func _key(x: int, d: int) -> Vector2i:
+	return Vector2i(int(floor(float(x) / float(CHUNK))), int(floor(float(d) / float(CHUNK))))
+
+
+## Build whatever is missing or stale inside the window, and drop what has left
+## it. Returns true if anything was built, so the caller can keep the light field
+## in step without a second notion of when things changed.
 func refresh(centre: Vector2i, half_w: int, half_d: int) -> bool:
-	if not _dirty and centre == _built_at:
-		return false
-	_built_at = centre
-	_dirty = false
-	_build(centre, half_w, half_d)
-	return true
+	var lo := _key(centre.x - half_w, centre.y - half_d)
+	var hi := _key(centre.x + half_w, centre.y + half_d)
+
+	# Anything outside the window is freed. The window follows the ship, so this
+	# is what keeps a two-hundred-metre planet from accumulating in memory.
+	for k in _chunks.keys():
+		var key: Vector2i = k
+		if key.x < lo.x or key.x > hi.x or key.y < lo.y or key.y > hi.y:
+			(_chunks[key] as Node).queue_free()
+			_chunks.erase(key)
+			_dirty.erase(key)
+
+	# Nearest first, so the chunk the player is looking at is never the one that
+	# waits. A budget with no ordering is a budget that rebuilds the far corner
+	# of the window while the tunnel under the ship is stale.
+	var todo: Array[Vector2i] = []
+	for cd in range(lo.y, hi.y + 1):
+		for cx in range(lo.x, hi.x + 1):
+			var key := Vector2i(cx, cd)
+			if _chunks.has(key) and not _dirty.get(key, false):
+				continue
+			todo.append(key)
+	var here := _key(centre.x, centre.y)
+	todo.sort_custom(func(a: Vector2i, b: Vector2i) -> bool:
+		return (a - here).length_squared() < (b - here).length_squared())
+
+	var built := false
+	var done := 0
+	for key in todo:
+		if done >= BUDGET and _chunks.has(key):
+			break                       ## a stale chunk can wait; a missing one cannot
+		_build_chunk(key)
+		_dirty.erase(key)
+		built = true
+		done += 1
+
+	if built:
+		var total := 0
+		for c in _chunks.values():
+			var mi: MeshInstance3D = c
+			var m: ArrayMesh = mi.mesh
+			if m != null and m.get_surface_count() > 0:
+				total += m.surface_get_array_len(0)
+		vertex_count = total
+	return built
 
 
-func _build(centre: Vector2i, half_w: int, half_d: int) -> void:
-	_mesh.clear_surfaces()
+## One chunk, contoured on the FINE lattice.
+##
+## The lattice is `Tuning.SUB` cells to the metre, so everything the contour
+## returns is in fine-cell units and gets divided down before it becomes a
+## vertex. Material, colour and seams are still read per METRE inside
+## `_colour_at`, because an ore vein is a metre-scale fact and only the SHAPE
+## needed to get finer.
+func _build_chunk(key: Vector2i) -> void:
+	var sub := Tuning.SUB
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# **Flat normals, per face, not smoothed.**
+	#
+	# `generate_normals()` averages across vertices that share a position, which
+	# only ever sees the vertices in THIS chunk: two chunks meeting along a seam
+	# average different sets and light differently, and the seams showed on screen
+	# as a grid of three-metre rectangles laid over the rock. A per-face normal is
+	# the same number whichever chunk computes it, so the seam disappears by
+	# construction rather than by matching two caches.
+	#
+	# It also costs nothing at this lattice: a facet is a quarter of a metre and
+	# the rock's detail comes from the normal map, not from the silhouette of a
+	# triangle.
+	st.set_smooth_group(-1)
 
-	var x0 := centre.x - half_w
-	var x1 := centre.x + half_w
-	var d0 := centre.y - half_d
-	var d1 := centre.y + half_d
+	var any := false
+	var scale := 1.0 / float(sub)
+	_colour_cache.clear()
 
-	for d in range(d0, d1 + 1):
-		for x in range(x0, x1 + 1):
-			var c0 := _world.fill_at(x, d)
-			var c1 := _world.fill_at(x + 1, d)
-			var c2 := _world.fill_at(x + 1, d + 1)
-			var c3 := _world.fill_at(x, d + 1)
-			var m := Contour.case_of(c0, c1, c2, c3)
-			if m == 0:
+	# **Solid rock is drawn at the METRE, and only the surface at the quarter.**
+	#
+	# The contour has sixteen times the cells now, and almost all of them are deep
+	# inside untouched rock where the answer is a flat square either way: emitting
+	# those at the fine lattice put 61,350 vertices in a window that used to hold
+	# 2,976, for a wall that looks identical. A metre whose own fine cells and
+	# whose neighbours' facing cells are all full is covered by one quad, and the
+	# fine lattice is spent where it is the whole point - the cut face.
+	for d in range(key.y * CHUNK, key.y * CHUNK + CHUNK):
+		for x in range(key.x * CHUNK, key.x * CHUNK + CHUNK):
+			if _is_buried(x, d):
+				_add_face(st, Vector2(float(x) - 0.5, float(d) - 0.5), SQUARE, 1.0)
+				any = true
 				continue
-			var origin := Vector2(float(x), float(d))
+			# **One fine cell of overlap on the low side, or the metre has a gap
+			# along its own edge.**
+			#
+			# A contour cell spans from one lattice point to the next, so the cells
+			# whose ORIGIN lies inside this metre cover `x - 0.375` to `x + 0.625`
+			# and not `x - 0.5` to `x + 0.5`. The strip left undrawn is an eighth
+			# of a metre wide and it runs the length of every boundary: on screen
+			# it is a grid of black bars across the rock. Starting one cell early
+			# draws the seam twice, which costs a few triangles and is invisible.
+			var fx0 := x * sub - 1
+			var fd0 := d * sub - 1
+			for fd in range(fd0, fd0 + sub + 1):
+				for fx in range(fx0, fx0 + sub + 1):
+					var c0 := _world.fine_at(fx, fd)
+					var c1 := _world.fine_at(fx + 1, fd)
+					var c2 := _world.fine_at(fx + 1, fd + 1)
+					var c3 := _world.fine_at(fx, fd + 1)
+					var m := Contour.case_of(c0, c1, c2, c3)
+					if m == 0:
+						continue
+					any = true
+					# The lattice is fine cell CENTRES, exactly as it used to be
+					# metre centres, so the origin is this cell's centre in metres.
+					var origin := Vector2(World.fine_centre(fx), World.fine_centre(fd))
+					for poly in Contour.fill_polygon(c0, c1, c2, c3):
+						_add_face(st, origin, poly, scale)
+					var segs := Contour.segments(c0, c1, c2, c3)
+					for i in range(0, segs.size(), 2):
+						_add_wall(st, origin + segs[i] * scale, origin + segs[i + 1] * scale)
 
-			for poly in Contour.fill_polygon(c0, c1, c2, c3):
-				_add_face(st, origin, poly)
-			var segs := Contour.segments(c0, c1, c2, c3)
-			for i in range(0, segs.size(), 2):
-				_add_wall(st, origin + segs[i], origin + segs[i + 1])
+	var mi: MeshInstance3D = _chunks.get(key, null)
+	if mi == null:
+		mi = MeshInstance3D.new()
+		mi.material_override = _material
+		# The rock owns its whole light model in the shader and is excluded from
+		# every real light. A chunk that casts or receives one puts a hard-edged
+		# rectangle of its own bounds over the rock beside it.
+		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		mi.gi_mode = GeometryInstance3D.GI_MODE_DISABLED
+		add_child(mi)
+		_chunks[key] = mi
 
+	# **An empty chunk is a real and common case**: most of a window is either
+	# solid rock away from any tunnel or open air, and both contour to nothing.
+	# `generate_tangents` on an empty SurfaceTool logs "UVs are required to
+	# generate tangents" once per chunk per rebuild, which is thousands of error
+	# lines a minute and a gate that fails on the error count rather than on
+	# anything being wrong.
+	if not any:
+		mi.mesh = null
+		return
 	st.generate_normals()
 	st.generate_tangents()
-	st.commit(_mesh)
-	# GDScript has no C ternary; the conditional expression is `x if c else y`.
-	vertex_count = _mesh.surface_get_array_len(0) if _mesh.get_surface_count() > 0 else 0
+	var mesh := ArrayMesh.new()
+	st.commit(mesh)
+	mi.mesh = mesh
 
 
 ## The colour of the rock AT A POINT, sampled per vertex rather than per cell.
@@ -154,13 +329,14 @@ func _colour_at(p: Vector2) -> Color:
 	return col
 
 
-func _add_face(st: SurfaceTool, origin: Vector2, poly: PackedVector2Array) -> void:
+func _add_face(st: SurfaceTool, origin: Vector2, poly: PackedVector2Array, scale: float) -> void:
 	if poly.size() < 3:
 		return
 	# A fan from the first vertex. Every polygon marching squares produces is
 	# convex, so a fan is a correct triangulation and needs no ear clipping.
 	for i in range(1, poly.size() - 1):
-		_tri(_v(origin + poly[0], HALF), _v(origin + poly[i], HALF), _v(origin + poly[i + 1], HALF), st)
+		_tri(_v(origin + poly[0] * scale, HALF), _v(origin + poly[i] * scale, HALF),
+			_v(origin + poly[i + 1] * scale, HALF), st)
 
 
 func _add_wall(st: SurfaceTool, a: Vector2, b: Vector2) -> void:
@@ -195,6 +371,16 @@ func _tri(a: Vector3, b: Vector3, c: Vector3, st: SurfaceTool) -> void:
 
 
 func _vert(v: Vector3, st: SurfaceTool) -> void:
-	st.set_color(_colour_at(Vector2(v.x, -v.y)))
+	# **Cached per metre for the length of one chunk build.** The colour is a
+	# metre-scale fact - which ore, which band, whether it is a seam - and it was
+	# being recomputed for every vertex with a two-by-two cell scan inside it.
+	# At the fine lattice that is tens of thousands of scans for a few hundred
+	# distinct answers.
+	var key := Vector2i(int(floor(v.x + 0.5)), int(floor(-v.y + 0.5)))
+	var c: Variant = _colour_cache.get(key)
+	if c == null:
+		c = _colour_at(Vector2(v.x, -v.y))
+		_colour_cache[key] = c
+	st.set_color(c)
 	st.set_uv(Vector2(v.x, v.y) * UV_SCALE)
 	st.add_vertex(v)
