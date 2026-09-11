@@ -78,14 +78,17 @@ uniform float strength : hint_range(0.0, 4.0) = 1.9;
 uniform float density = 0.05;
 
 // ── Drown's water ─────────────────────────────────────────────────────────
-// The depth of the surface, in sim metres, or a large negative when the world
-// does not flood. Everything below it is under water.
+// The depth of the surface, in sim metres. **Depth grows DOWNWARD**, so a world
+// with no water parks this at a large POSITIVE number, far below the bottom of
+// the planet, and nothing is ever under it. Parked at a large negative instead
+// it is above everything, and every class in the game renders submerged: Crush
+// came out blue.
 //
 // The surface is a LINE and that is the whole point of drawing it here: a tint
 // alone reads as another band of rock, and the thing that says "this is water"
 // is the bright horizontal edge you drop through. It is in the air shader
 // because water, like the lamp's glow, lives in the space rather than on a face.
-uniform float water_y = -1000000.0;
+uniform float water_y = 1000000.0;
 uniform vec3 water_tint : source_color = vec3(0.30, 0.86, 1.00);
 uniform float water_gain : hint_range(0.0, 3.0) = 1.15;
 uniform float surface_glow : hint_range(0.0, 6.0) = 2.6;

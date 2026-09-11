@@ -399,6 +399,18 @@ const WATER_DRAG := 1.8
 ## closes in and a flooded tunnel reads as flooded before anything says so.
 const WATER_LAMP := 0.55
 
+## **Crush's weight, which never switches on because it was never off.**
+##
+## Hull a second at the core, falling linearly to nothing at the pad. Linear and
+## not a curve on purpose: every other pressure in this game has a shape with a
+## moment in it, and this one deliberately has none - there is nothing to brace
+## for, only a bill that grows the whole way down.
+##
+## 0.34 puts a straight descent to the core at about forty hull, which is most of
+## a seal upgrade's worth and nowhere near a run on its own. A hazard may take the
+## takings; it may never take the run.
+const CRUSH_RATE := 0.34
+
 # ── ore ───────────────────────────────────────────────────────────────────
 # Cargo is WEIGHT, never units. Two things the player cannot compare on screen
 # are not a choice, and counting units made dirt and rubies take the same slot.

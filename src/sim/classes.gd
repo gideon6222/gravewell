@@ -11,13 +11,14 @@ extends RefCounted
 ## A palette is a still image: two worlds painted differently still behave
 ## identically, and a player learns that in one descent.
 ##
-## Seven classes in the plan. Three are built: Cinder is the control, Rime is the
-## one that proves the point, and Drown is the one whose pressure the player
-## causes rather than meets.
+## Seven classes in the plan. Four are built: Cinder is the control, Rime is the
+## one that proves the point, Drown is the one whose pressure the player causes
+## rather than meets, and Crush is the one with no Line in it at all.
 
 const CINDER := 0
 const RIME := 1
 const DROWN := 2
+const CRUSH := 3
 
 ## Every field here is read by something. A class that only sets colours is a
 ## palette wearing a rule's clothes, and `test_classes.gd` asserts that any two
@@ -102,6 +103,38 @@ const ALL: Array[Dictionary] = [
 			Color(0.014, 0.048, 0.098),
 		],
 	},
+	{
+		"id": CRUSH,
+		"name": "Crush",
+		"blurb": "under weight. it presses from the first metre",
+		# Dense beyond anything else: the slowest rock in the game to cut.
+		"hardness": 1.55,
+		"cut_noise": 0.0,
+		# **The dark one.** Light barely turns a corner here, and the lamp itself
+		# does not reach - the two compound, so a Crush tunnel is a pool around the
+		# ship and nothing else.
+		"detour_att": 1.25,
+		"lamp": 0.62,
+		# Everything is heavy. The ship is slow to start and slow to stop, which
+		# makes a cavern a hazard rather than a rest.
+		"thrust": 0.62,
+		# **The rule.** No Line, because the Line is everywhere: the hull loads
+		# continuously from the pad down instead of switching on at one metre.
+		"crushes": true,
+		"line": "WEIGHT",
+		"line_note": "it never stopped",
+		"cavern_chance": 0.05,
+		"brittle": false,
+		"tint": [
+			Color(0.62, 0.60, 0.66), Color(0.52, 0.50, 0.58), Color(0.44, 0.41, 0.50),
+			Color(0.36, 0.33, 0.42), Color(0.28, 0.25, 0.34),
+		],
+		"air": [
+			Color(0.030, 0.028, 0.036), Color(0.026, 0.024, 0.033),
+			Color(0.022, 0.020, 0.030), Color(0.018, 0.016, 0.027),
+			Color(0.014, 0.012, 0.024),
+		],
+	},
 ]
 
 ## How wide an unsupported span has to be before a Rime ceiling gives. Three
@@ -143,6 +176,22 @@ static func water_table(id: int) -> float:
 	return float(of(id).get("water_table", 1.0e9))
 
 
+## Does this world press on the hull from the surface down, instead of past a
+## Line? Only Crush, and it is the one class with no single metre to cross.
+static func crushes(id: int) -> bool:
+	return bool(of(id).get("crushes", false))
+
+
+## What this world does to the ship's thrust, and to the lamp's reach. Both
+## default to 1.0, so a class that says nothing behaves like the control.
+static func thrust_mult(id: int) -> float:
+	return float(of(id).get("thrust", 1.0))
+
+
+static func lamp_mult(id: int) -> float:
+	return float(of(id).get("lamp", 1.0))
+
+
 static func is_brittle(id: int) -> bool:
 	return bool(of(id)["brittle"])
 
@@ -178,6 +227,10 @@ static func differences(a: int, b: int) -> int:
 	# Whether the tunnels fill with water is the most perceivable thing any class
 	# does, so it counts as a channel of its own.
 	if bool(ca.get("floods", false)) != bool(cb.get("floods", false)):
+		n += 1
+	# Whether the hull loads from the first metre or past a known one changes how
+	# the whole descent is planned, so it is a channel too.
+	if bool(ca.get("crushes", false)) != bool(cb.get("crushes", false)):
 		n += 1
 	if String(ca["line"]) != String(cb["line"]):
 		n += 1

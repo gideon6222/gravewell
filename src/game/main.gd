@@ -635,7 +635,7 @@ func _redraw_world() -> void:
 	# the shader needs no branch and nothing can half-flood a planet that has no
 	# water in it.
 	_haze_mat.set_shader_parameter("water_y",
-		sim.world.water_depth() if Classes.floods(sim.world.class_id) else -1000000.0)
+		sim.world.water_depth() if Classes.floods(sim.world.class_id) else 1000000.0)
 	_haze_mat.set_shader_parameter("fan", _field.fan_texture)
 
 	_haze.position = Vector3(sim.flight.pos.x, DEPTH_SIGN * sim.flight.pos.y, HAZE_Z)

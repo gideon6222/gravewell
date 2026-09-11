@@ -1057,7 +1057,12 @@ and protrusions are what throw the hard wedges he is seeing.
       three of five channels and that its rule fires in a real descent.
       *Film:* `drown-surface`, `drown-deep`.
 
-- [ ] The remaining four classes: Crush, Hollow, Verge, Quick, in that order
+- [x] **M16. Crush, the fourth class.** (0.13.0) High density: weak thrust, a lamp that does
+      not reach, light that will not turn a corner, and a hull load that rises continuously
+      from the pad instead of past a Line. The one world with no metre to cross.
+      *Proves it:* `test_crush.gd`, including that the rate the HUD shows is the rate the
+      hull loses - `pressure_rate()` and the drain were two copies of one formula.
+- [ ] The remaining three classes: Hollow, Verge, Quick, in that order
 - [ ] Vaults, the drill tier gate, and the keepsake per world
 - [ ] Log fragments and the log wall
 - [ ] The drive completing, the final world, and the ending, with the endless game behind it

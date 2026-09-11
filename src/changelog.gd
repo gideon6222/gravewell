@@ -9,9 +9,21 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.12.0"
+const VERSION := "0.13.0"
 
 const RELEASES := [
+	{
+		"version": "0.13.0",
+		"date": "2026-09-11",
+		"title": "Crush",
+		"notes": [
+			"A fourth world, and its rule is weight. The hull loads from the first metre instead of past a line, so there is nothing to brace for and nowhere that is safe, only shallower.",
+			"Everything is heavy: the ship is slow to start and slow to stop, which makes a cavern a hazard rather than a rest.",
+			"It is the dark one. The lamp barely reaches and what light there is will not turn a corner.",
+			"The hull readout now shows exactly what is being taken, on every world, including under Drown's water.",
+			"Rock no longer comes out in patches of colours nothing nearby is made of.",
+		],
+	},
 	{
 		"version": "0.12.0",
 		"date": "2026-09-11",

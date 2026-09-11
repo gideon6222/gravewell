@@ -261,6 +261,13 @@ func _build_chunk(key: Vector2i) -> void:
 	for d in range(key.y * CHUNK, key.y * CHUNK + CHUNK):
 		for x in range(key.x * CHUNK, key.x * CHUNK + CHUNK):
 			if _is_buried(x, d):
+				# **Its own colour, at all four corners.** A buried metre is one
+				# metre of one material, so that IS the truth - and sampling the
+				# corners instead asks `_colour_at` to pick the most solid of the
+				# four metres meeting there, which for untouched rock is a tie
+				# resolved by scan order. Every quad then took a different
+				# neighbour's ore colour and the wall came out as a patchwork of
+				# metre-wide blocks in colours nothing nearby was made of.
 				_add_face(st, Vector2(float(x) - 0.5, float(d) - 0.5), SQUARE, 1.0)
 				any = true
 				continue
@@ -337,31 +344,52 @@ func _build_chunk(key: Vector2i) -> void:
 ## mineral in rock. Sampling per vertex lets the colour interpolate across every
 ## triangle, which is what makes a seam look like it runs through the stone.
 ##
-## The sample is the MOST SOLID of the cells touching the point, so a vein keeps
-## its colour right up to the tunnel edge instead of being washed out by the air
-## beside it.
+## **The sample is the weighted AVERAGE of the metres touching the point**, by how
+## much rock each still has. It was the single most solid of them, and a tie - four
+## untouched metres, which is most of a planet - was broken by scan order. With
+## every cell contoured that was invisible, because the vertices were dense enough
+## to blend anyway. Once buried rock became one quad per metre, the four corners
+## each picked a different neighbour's ore and the wall came out as a patchwork of
+## metre-wide blocks in colours nothing nearby was made of.
+##
+## Averaging also makes two neighbouring quads agree about the corner they share,
+## which is what makes a flat-shaded wall read as continuous stone at all.
 func _colour_at(p: Vector2) -> Color:
 	var bx := int(floor(p.x))
 	var bd := int(floor(p.y))
-	var best_fill := -1.0
-	var best := Vector2i(bx, bd)
+	var r := 0.0
+	var g := 0.0
+	var b := 0.0
+	var a := 0.0
+	var total := 0.0
+	var cache := Vector2i(-99999, 0)
 	for od in range(0, 2):
 		for ox in range(0, 2):
-			var f := _world.fill_at(bx + ox, bd + od)
-			if f > best_fill:
-				best_fill = f
-				best = Vector2i(bx + ox, bd + od)
-	# **A cache shows through one layer of rock**, as a discolouration in the
-	# wall rather than as a marker on a map. That is the whole design of the
-	# secret layer: you find it by reading the world. A cache therefore wins the
-	# colour vote over the rock in front of it, which it would otherwise lose on
-	# a tie of fills.
-	for od in range(0, 2):
-		for ox in range(0, 2):
-			if _world.material_at(bx + ox, bd + od) == Ore.CACHE:
-				best = Vector2i(bx + ox, bd + od)
-
-	return _metre_colour(best.x, best.y)
+			var x := bx + ox
+			var d := bd + od
+			# **Weighted by how much rock is there**, which is what keeps a vein
+			# its colour right up to the tunnel edge instead of being washed out
+			# by the air beside it. Air weighs nothing and contributes nothing.
+			var f := _world.fill_at(x, d)
+			if f <= 0.0:
+				continue
+			if _world.material_at(x, d) == Ore.CACHE:
+				cache = Vector2i(x, d)
+			var c := _metre_colour(x, d)
+			r += c.r * f
+			g += c.g * f
+			b += c.b * f
+			a += c.a * f
+			total += f
+	# **A cache shows through one layer of rock**, as a discolouration in the wall
+	# rather than as a marker on a map. That is the whole design of the secret
+	# layer: you find it by reading the world. So it wins outright rather than
+	# being averaged into the stone in front of it.
+	if cache.x != -99999:
+		return _metre_colour(cache.x, cache.y)
+	if total <= 0.0:
+		return _metre_colour(bx, bd)
+	return Color(r / total, g / total, b / total, a / total)
 
 
 ## **What one METRE is coloured, memoised.**

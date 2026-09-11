@@ -178,7 +178,9 @@ func power_capacity() -> float:
 
 
 func speed_mult() -> float:
-	return Upgrades.mult("thrust", level_of("thrust"))
+	# The world gets a say as well as the ladder. On Crush everything is heavy,
+	# which makes a cavern a hazard rather than a rest.
+	return Upgrades.mult("thrust", level_of("thrust")) * Classes.thrust_mult(world.class_id)
 
 
 ## The lamp reach, and therefore the FRAMING. His suggestion, and it was the
@@ -192,7 +194,9 @@ func lamp_reach() -> float:
 	# what makes a flooded tunnel read as flooded before anything says so.
 	if world.submerged_at(flight.pos):
 		r *= Tuning.WATER_LAMP
-	return r
+	# And the world's own darkness. Crush is the dark one twice over: the lamp
+	# does not reach, and `detour_att` stops what there is turning a corner.
+	return r * Classes.lamp_mult(world.class_id)
 
 
 ## What one rung costs right now, or -1 if it is maxed or still sealed.
@@ -280,8 +284,7 @@ func step(dir: Vector2, drilling: bool, dt: float) -> void:
 	_drain(dir, dt)
 	if drill_engaged:
 		_drill(dt)
-	_pressure(d, density, dt)
-	_drowning(dt)
+	_pressure(d, dt)
 	_settle(dt)
 	_collect()
 	if phase == Phase.EXTRACTION:
@@ -443,31 +446,17 @@ func crack_warning() -> float:
 ## The Line. Past it the air is thick enough to be a load on the hull, and the
 ## drain is a rate the player can read rather than a cliff. Announced a band
 ## early: a threshold the player cannot see is not a mechanic.
-## Drown's own Line, and it has an off switch: going up.
+## Apply what `pressure_rate` says, and announce the Line on the way to it.
 ##
-## Every other pressure in this game arrives whatever the player does. This one
-## is a consequence of where they chose to be, it gets worse the further under
-## they go, and it stops the moment they break the surface.
-func _drowning(dt: float) -> void:
-	if not submerged:
-		return
-	var under: float = flight.depth() - world.water_depth()
-	if under <= 0.0:
-		return
-	var rate: float = Tuning.DROWN_HULL_RATE * (1.0 + under / Tuning.DROWN_HULL_SCALE)
-	hull -= rate * Upgrades.seal_relief(level_of("seal")) * dt
-
-
-func _pressure(d: float, density: float, dt: float) -> void:
-	if d < float(Tuning.LINE_DEPTH) - Tuning.LINE_WARN_M:
-		return
-	if not _warned_line:
+## The announcement is the only thing left in here that is about a depth: the
+## damage itself is one multiplication by one number that the HUD is showing the
+## player at the same moment.
+func _pressure(d: float, dt: float) -> void:
+	# Crush has nothing to announce, because there is nothing to cross. The HUD
+	# says so in its own words rather than promising a metre that never comes.
+	if not Classes.crushes(world.class_id) 			and not _warned_line and d >= float(Tuning.LINE_DEPTH) - Tuning.LINE_WARN_M:
 		_warned_line = true
-	if d < float(Tuning.LINE_DEPTH):
-		return
-	var excess: float = density - Tuning.density_at(float(Tuning.LINE_DEPTH))
-	if excess > 0.0:
-		hull -= Tuning.PRESSURE_RATE * excess * Upgrades.seal_relief(level_of("seal")) * dt
+	hull -= pressure_rate() * dt
 
 
 # ── the extraction ────────────────────────────────────────────────────────
@@ -543,12 +532,44 @@ func extract_frac() -> float:
 ## Hull loss a second at this depth, right now. A number beats a bar when the
 ## player needs causation, so the HUD shows this beside the gauge whenever it
 ## is non-zero.
+## **Everything the environment is taking out of the hull, per second.**
+##
+## One function computes it and one applies it. They used to be two copies of the
+## same arithmetic in two places - this one for the HUD's readout and the vignette,
+## `_pressure` for the actual damage - which is precisely the shape of fault this
+## repo has shipped twice already: two thresholds for "gone", and a ray fan cast
+## to one range and decoded against another. A readout that is computed separately
+## from the rule is a readout that will eventually lie.
+##
+## Three sources, and a world uses whichever ones apply to it:
+##
+##   **the Line**  every class but Crush: nothing until a known metre, then the
+##                 air's excess density over that metre
+##   **the crush** Crush only: from the pad down, rising the whole way, with no
+##                 moment in it to brace for
+##   **the water** Drown only: while submerged, worse the further under
 func pressure_rate() -> float:
 	var d := flight.depth()
-	if d < float(Tuning.LINE_DEPTH):
-		return 0.0
-	var excess: float = Tuning.density_at(d) - Tuning.density_at(float(Tuning.LINE_DEPTH))
-	return maxf(Tuning.PRESSURE_RATE * excess * Upgrades.seal_relief(level_of("seal")), 0.0)
+	var relief := Upgrades.seal_relief(level_of("seal"))
+	var rate := 0.0
+
+	if Classes.crushes(world.class_id):
+		rate += Tuning.CRUSH_RATE * maxf(d, 0.0) / float(Tuning.CORE_DEPTH) * relief
+	elif d >= float(Tuning.LINE_DEPTH):
+		var excess: float = Tuning.density_at(d) - Tuning.density_at(float(Tuning.LINE_DEPTH))
+		rate += maxf(Tuning.PRESSURE_RATE * excess * relief, 0.0)
+
+	# **Asked of the WORLD, not of the cached flag.** `submerged` is refreshed
+	# inside `step`, so anything that asks this question at any other moment - a
+	# test, a HUD built before the first tick, a probe - gets last frame's answer
+	# or none at all. This has to be a pure function of where the ship is, or the
+	# number shown and the number applied come apart again by a different route.
+	if world.submerged_at(flight.pos):
+		var under: float = d - world.water_depth()
+		if under > 0.0:
+			rate += Tuning.DROWN_HULL_RATE * (1.0 + under / Tuning.DROWN_HULL_SCALE) * relief
+
+	return rate
 
 
 # ── selling, without a journey ────────────────────────────────────────────

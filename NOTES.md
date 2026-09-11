@@ -1057,3 +1057,68 @@ rock exists.
 passed, because the metre there happened not to be open yet. That stopped being
 the deciding question the moment the ship could be under water in a cell it was
 still cutting. It asserts its own precondition now.
+
+## 0.13.0: Crush, the fourth class (2026-09-11)
+
+The plan's row: *"High density: thrust is weak, everything is heavy, hull load
+rises continuously rather than past a line."*
+
+### 40. The class whose Line is everywhere
+
+Every other world has one metre where four things land at once and you feel
+yourself cross it. Crush has none: `CRUSH_RATE` 0.34 hull a second at the core,
+falling linearly to nothing at the pad. **Linear and not a curve on purpose** -
+every other pressure in this game has a shape with a moment in it, and this one
+deliberately has none. There is nothing to brace for, only a bill that grows the
+whole way down. A straight descent to the core costs about forty hull, which is
+most of a seal upgrade and nowhere near a run on its own.
+
+Its darkness is two things compounding: `lamp` 0.62 so the pool closes in, and
+`detour_att` 1.25 so what light there is will not turn a corner. And `thrust`
+0.62, which makes a cavern a hazard rather than a rest.
+
+### 41. `pressure_rate()` and the drain were two copies of one formula
+
+One computed the number the HUD prints and the vignette closes on; the other did
+the damage. Nothing made them agree. **That is the shape of fault this repo has
+shipped twice already** - two thresholds for "gone", and a ray fan cast to one
+range and decoded against another - and it was sitting in the file the whole
+time.
+
+Now one function computes everything the environment is taking out of the hull -
+the Line's excess density, Crush's weight, Drown's water - and `_pressure` is one
+multiplication by it. `test_the_rate_shown_is_the_rate_applied` drives all four
+classes at 150 m and asserts the hull lost in a second is the rate displayed.
+
+It also caught a second fault immediately: `pressure_rate()` read the cached
+`submerged` flag, which only `step` refreshes, so any other caller got last
+frame's answer or none. It asks the world directly now and is a pure function of
+position.
+
+### 42. And the colour sampler was picking, where it needed to average
+
+`_colour_at` took the single MOST SOLID of the four metres touching a point. For
+four untouched metres - which is most of a planet - that is a tie, broken by scan
+order.
+
+Invisible while every cell was contoured, because the vertices were dense enough
+to blend anyway. Once buried rock became one quad per metre, the four corners
+each picked a different neighbour's ore and the wall came out as **a patchwork of
+metre-wide blocks in colours nothing nearby was made of** - khaki, blue, brown,
+on a world whose whole palette is grey-violet.
+
+It is a weighted average now, by how much rock each metre still has, which keeps
+the property the old rule existed for (air weighs nothing, so a vein holds its
+colour right up to the tunnel edge) and adds the one it was missing: two
+neighbouring quads agree about the corner they share, which is what makes a
+flat-shaded wall read as continuous stone. A cache still wins outright, because
+showing through one layer of rock is the whole design of the secret layer.
+
+Found by the rock's term dump. The layer toggles had already ruled out the haze,
+the post and the buried path; `debug_term 3` showed the patchwork in one frame.
+
+### 43. Depth grows downward, so "no water" parks at a large POSITIVE
+
+The Drown surface uniform was parked at -1e6 for classes with no water, which is
+*above* the whole planet: every class rendered as submerged and Crush came out
+blue. The smoke run asserts the parking spot is below the core now.

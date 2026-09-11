@@ -159,6 +159,18 @@ func _check_the_lamp_is_one_light(main) -> void:
 	_t.eq(int(rock.get_shader_parameter("debug_term")), 0,
 		"the rock is rendering a debug term instead of the game")
 
+	# **Depth grows downward, so "no water" is a large POSITIVE parking spot.**
+	# Parked negative it sits above the whole planet and every class renders as
+	# submerged; Crush came out blue and it was the picture that said so, not a
+	# test. Now a test says so.
+	var wy := float(haze.get_shader_parameter("water_y"))
+	if Classes.floods(main.sim.world.class_id):
+		_t.approx(wy, main.sim.world.water_depth(), 1e-3,
+			"the air is drawing the waterline somewhere the simulation does not have it")
+	else:
+		_t.gt(wy, float(Tuning.CORE_DEPTH) * 2.0,
+			"a world with no water parks its surface at %.1f, which is inside the planet" % wy)
+
 	# The rock picks its normal-map projection from where the front face sits in
 	# z, because the mesh's smoothed normals cannot tell a wall from a face. That
 	# plane is `Terrain.HALF` and the shader has to be handed the same number:
