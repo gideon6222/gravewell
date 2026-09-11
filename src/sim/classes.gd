@@ -11,11 +11,13 @@ extends RefCounted
 ## A palette is a still image: two worlds painted differently still behave
 ## identically, and a player learns that in one descent.
 ##
-## Seven classes in the plan. Two are built: Cinder is the control, and Rime is
-## the one that proves the point.
+## Seven classes in the plan. Three are built: Cinder is the control, Rime is the
+## one that proves the point, and Drown is the one whose pressure the player
+## causes rather than meets.
 
 const CINDER := 0
 const RIME := 1
+const DROWN := 2
 
 ## Every field here is read by something. A class that only sets colours is a
 ## palette wearing a rule's clothes, and `test_classes.gd` asserts that any two
@@ -70,6 +72,36 @@ const ALL: Array[Dictionary] = [
 			Color(0.030, 0.058, 0.125),
 		],
 	},
+	{
+		"id": DROWN,
+		"name": "Drown",
+		"blurb": "drowned. the shaft you cut becomes a well",
+		# Saturated rock: heavy and slow to cut, the opposite trade to Rime.
+		"hardness": 1.3,
+		"cut_noise": 0.0,
+		# Murky. Light in water is scattered rather than carried, so a Drown
+		# tunnel goes black around a corner sooner than a Cinder one does.
+		"detour_att": 0.78,
+		"line": "PRESSURE",
+		"line_note": "the seals are working",
+		# Fewer natural voids, because the interesting space is the space you cut
+		# and then have to swim back up.
+		"cavern_chance": 0.10,
+		"brittle": false,
+		# **The rule.** Everything below `water_table` that is open holds water,
+		# and the surface climbs as the player opens volume under it.
+		"floods": true,
+		"water_table": 46.0,
+		"tint": [
+			Color(0.82, 0.92, 0.90), Color(0.66, 0.84, 0.86), Color(0.48, 0.74, 0.82),
+			Color(0.34, 0.62, 0.76), Color(0.22, 0.46, 0.66),
+		],
+		"air": [
+			Color(0.040, 0.058, 0.062), Color(0.034, 0.058, 0.066),
+			Color(0.026, 0.062, 0.082), Color(0.020, 0.058, 0.092),
+			Color(0.014, 0.048, 0.098),
+		],
+	},
 ]
 
 ## How wide an unsupported span has to be before a Rime ceiling gives. Three
@@ -98,6 +130,17 @@ static func hardness_mult(id: int) -> float:
 
 static func detour_att(id: int) -> float:
 	return float(of(id)["detour_att"])
+
+
+## Does this world's water fill the tunnels the player cuts? Only Drown, and a
+## rule that fires everywhere is a rule the player cannot attribute to a world.
+static func floods(id: int) -> bool:
+	return bool(of(id).get("floods", false))
+
+
+## The depth its water starts at, before the player has opened anything.
+static func water_table(id: int) -> float:
+	return float(of(id).get("water_table", 1.0e9))
 
 
 static func is_brittle(id: int) -> bool:
@@ -131,6 +174,10 @@ static func differences(a: int, b: int) -> int:
 	if not is_equal_approx(float(ca["detour_att"]), float(cb["detour_att"])):
 		n += 1
 	if ca["brittle"] != cb["brittle"]:
+		n += 1
+	# Whether the tunnels fill with water is the most perceivable thing any class
+	# does, so it counts as a channel of its own.
+	if bool(ca.get("floods", false)) != bool(cb.get("floods", false)):
 		n += 1
 	if String(ca["line"]) != String(cb["line"]):
 		n += 1

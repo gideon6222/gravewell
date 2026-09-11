@@ -77,6 +77,19 @@ uniform vec3 tint : source_color = vec3(1.0, 0.93, 0.82);
 uniform float strength : hint_range(0.0, 4.0) = 1.9;
 uniform float density = 0.05;
 
+// ── Drown's water ─────────────────────────────────────────────────────────
+// The depth of the surface, in sim metres, or a large negative when the world
+// does not flood. Everything below it is under water.
+//
+// The surface is a LINE and that is the whole point of drawing it here: a tint
+// alone reads as another band of rock, and the thing that says "this is water"
+// is the bright horizontal edge you drop through. It is in the air shader
+// because water, like the lamp's glow, lives in the space rather than on a face.
+uniform float water_y = -1000000.0;
+uniform vec3 water_tint : source_color = vec3(0.30, 0.86, 1.00);
+uniform float water_gain : hint_range(0.0, 3.0) = 1.15;
+uniform float surface_glow : hint_range(0.0, 6.0) = 2.6;
+
 // The beam is DISPERSED: a wide, soft angular profile rather than a cone with an
 // edge. These are dot products with the heading, so -1 is directly behind.
 uniform float cone_lo = -0.35;
@@ -278,6 +291,17 @@ void fragment() {
 	else if (debug_term == 4) { lit = shadow * flood; }
 	else if (debug_term == 5) { lit = (thick - 1.0) * 0.5; }
 
-	ALBEDO = tint * lit * strength;
+	vec3 colour = tint;
+	// Under the surface the light is the water's colour, and the surface itself
+	// is a thin bright line: the lamp catching the underside of it.
+	float under = smoothstep(-0.12, 0.12, p.y - water_y);
+	colour = mix(colour, water_tint, under * 0.85);
+	lit *= mix(1.0, water_gain, under);
+	// The band AT the line, a hand's width thick, and only where light reaches.
+	// `edge` is already the shadow's soft band, twenty lines up.
+	float surface = 1.0 - smoothstep(0.0, 0.22, abs(p.y - water_y));
+	lit += surface * flood * surface_glow * 0.12;
+
+	ALBEDO = colour * lit * strength;
 	ALPHA = 1.0;
 }

@@ -631,6 +631,11 @@ func _redraw_world() -> void:
 		m.set_shader_parameter("cone_hi", cone_hi)
 		m.set_shader_parameter("density", density)
 	_haze_mat.set_shader_parameter("fan_reach", fan_reach)
+	# Drown's surface. Parked a long way below the world on every other class, so
+	# the shader needs no branch and nothing can half-flood a planet that has no
+	# water in it.
+	_haze_mat.set_shader_parameter("water_y",
+		sim.world.water_depth() if Classes.floods(sim.world.class_id) else -1000000.0)
 	_haze_mat.set_shader_parameter("fan", _field.fan_texture)
 
 	_haze.position = Vector3(sim.flight.pos.x, DEPTH_SIGN * sim.flight.pos.y, HAZE_Z)
@@ -655,7 +660,14 @@ func _redraw_world() -> void:
 		# starts draining. Four things on one metre, from one table, so they
 		# cannot drift apart the way they did in Coreward.
 		var air := Classes.air_at(sim.world.class_id, sim.flight.depth())
-		_env.fog_light_color = _env.fog_light_color.lerp(air, 0.08)
+		# **Under water the air IS water**: the fog takes the water's colour and
+		# thickens hard, so the moment of going under is a change in the picture
+		# and not a caption. The same flag the flight, the drain, the lamp and the
+		# audio all read, so nothing can disagree about whether the ship is in it.
+		if sim.submerged:
+			air = Color(air.r * 0.35, air.g * 0.95 + 0.02, air.b * 1.25 + 0.05)
+			_env.fog_density = clampf(_env.fog_density * 2.6 + 0.030, 0.0, 0.30)
+		_env.fog_light_color = _env.fog_light_color.lerp(air, 0.22 if sim.submerged else 0.08)
 		_env.ambient_light_color = _env.ambient_light_color.lerp(
 			Color(air.r * 1.6 + 0.05, air.g * 1.6 + 0.06, air.b * 1.6 + 0.08), 0.08)
 

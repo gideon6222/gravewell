@@ -9,9 +9,22 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.11.0"
+const VERSION := "0.12.0"
 
 const RELEASES := [
+	{
+		"version": "0.12.0",
+		"date": "2026-09-11",
+		"title": "Drown",
+		"notes": [
+			"A third world, and its rule is water. Below about forty-six metres every tunnel you cut fills up, and the shaft you came down becomes a well.",
+			"The surface climbs as you open room beneath it, so a long dig floods the way home. It is the one pressure in the game that you cause rather than meet, and standing still costs nothing.",
+			"Under water the ship is dragged and pushed upward, so going down is the expensive direction for once.",
+			"The seals take it while you are under: the hull drains faster the deeper you go, and it stops the moment you surface.",
+			"The lamp closes right in through water, the sound goes away, and the surface is a bright line you drop through.",
+			"Rock the lamp has never reached keeps its texture instead of going flat.",
+		],
+	},
 	{
 		"version": "0.11.0",
 		"date": "2026-09-11",

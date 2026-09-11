@@ -363,6 +363,42 @@ const AIR_PER_M := 0.0042         ## linear term
 const AIR_CURVE := 1.35           ## depth exponent, so it thickens rather than ramps
 const AIR_DRAG := 0.55            ## velocity lost a second at density 1.0
 
+# ── water, which is Drown's whole rule ────────────────────────────────────
+#
+# **The only pressure in this game the player CAUSES rather than meets.** The
+# air thickens with depth, the hull drains past the Line and the collapse rises
+# on a clock; all three arrive whatever you do. The water rises because you cut
+# the rock, and sitting still costs nothing.
+#
+# The physical story, which is also the arithmetic: the rock down there is
+# saturated, so every cell you open releases the water it was holding, and that
+# water runs into the void network you have been cutting. The network is a shaft
+# about a metre across, so a cell's worth of released water raises the level by
+# roughly the fraction of the cell that was water.
+
+## How far the surface climbs per cell opened below it. 0.15 is a rock about
+## fifteen per cent water by volume draining into a shaft one metre wide, and it
+## puts a full hundred-and-fifty-cell descent at about twenty metres of rise:
+## enough that the way home is visibly worse than the way down, and not so much
+## that the shaft is gone.
+const WATER_RISE_PER_CELL := 0.15
+
+## Hull a second at the surface of the water, and how many metres under it takes
+## to double that. Drowning is the Line for this class: it has a way out, and the
+## way out is always up.
+const DROWN_HULL_RATE := 0.35
+const DROWN_HULL_SCALE := 25.0
+
+## What water does to flight. Buoyancy in m/s of upward pull and a drag far
+## heavier than any air: **down becomes the expensive direction**, which inverts
+## the motion of the whole game for one world.
+const WATER_BUOYANCY := 2.2
+const WATER_DRAG := 1.8
+
+## And what it does to the lamp. Water scatters rather than carries, so the pool
+## closes in and a flooded tunnel reads as flooded before anything says so.
+const WATER_LAMP := 0.55
+
 # ── ore ───────────────────────────────────────────────────────────────────
 # Cargo is WEIGHT, never units. Two things the player cannot compare on screen
 # are not a choice, and counting units made dirt and rubies take the same slot.

@@ -83,6 +83,11 @@ var descents: int = 0
 ## something is taking a lot more work, or easy fluffy dirt."
 var dig_load: float = 0.0
 
+## **Is the ship under Drown's water right now?** One flag, read by the flight,
+## the drain, the lamp, the audio and the picture, so none of them can disagree
+## about whether the player is swimming.
+var submerged := false
+
 ## The extraction. `rising` is the depth the world has died up to: everything
 ## below it is gone, and when it reaches the ship the run is over.
 var extract_left: float = 0.0
@@ -182,7 +187,12 @@ func speed_mult() -> float:
 ## circle. So the camera pulls back with it, and the darkness is what justifies
 ## the tight frame at the start.
 func lamp_reach() -> float:
-	return Tuning.lamp_reach(lamp_mode, power_frac()) * Upgrades.mult("lamp", level_of("lamp"))
+	var r := Tuning.lamp_reach(lamp_mode, power_frac()) * Upgrades.mult("lamp", level_of("lamp"))
+	# Water scatters light rather than carrying it, so the pool closes in. Half of
+	# what makes a flooded tunnel read as flooded before anything says so.
+	if world.submerged_at(flight.pos):
+		r *= Tuning.WATER_LAMP
+	return r
 
 
 ## What one rung costs right now, or -1 if it is maxed or still sealed.
@@ -258,6 +268,8 @@ func step(dir: Vector2, drilling: bool, dt: float) -> void:
 			Tuning.plow_speed(drill_rate(), hardness),
 			Tuning.speed_for(load_kg) * speed_mult())
 
+	submerged = world.submerged_at(flight.pos)
+	flight.in_water = submerged
 	flight.speed_mult = speed_mult()
 	flight.step(dir, load_kg, density, dt)
 
@@ -269,6 +281,7 @@ func step(dir: Vector2, drilling: bool, dt: float) -> void:
 	if drill_engaged:
 		_drill(dt)
 	_pressure(d, density, dt)
+	_drowning(dt)
 	_settle(dt)
 	_collect()
 	if phase == Phase.EXTRACTION:
@@ -430,6 +443,21 @@ func crack_warning() -> float:
 ## The Line. Past it the air is thick enough to be a load on the hull, and the
 ## drain is a rate the player can read rather than a cliff. Announced a band
 ## early: a threshold the player cannot see is not a mechanic.
+## Drown's own Line, and it has an off switch: going up.
+##
+## Every other pressure in this game arrives whatever the player does. This one
+## is a consequence of where they chose to be, it gets worse the further under
+## they go, and it stops the moment they break the surface.
+func _drowning(dt: float) -> void:
+	if not submerged:
+		return
+	var under: float = flight.depth() - world.water_depth()
+	if under <= 0.0:
+		return
+	var rate: float = Tuning.DROWN_HULL_RATE * (1.0 + under / Tuning.DROWN_HULL_SCALE)
+	hull -= rate * Upgrades.seal_relief(level_of("seal")) * dt
+
+
 func _pressure(d: float, density: float, dt: float) -> void:
 	if d < float(Tuning.LINE_DEPTH) - Tuning.LINE_WARN_M:
 		return

@@ -217,7 +217,14 @@ func tick(sim: Sim, dt: float) -> void:
 	var density := Tuning.density_at(depth)
 	if _lowpass != null:
 		var want: float = clampf(13000.0 / (1.0 + density * 0.55), 1400.0, 13000.0)
-		_lowpass.cutoff_hz = lerpf(_lowpass.cutoff_hz, want, SimUtil.smooth(1.2, dt))
+		# **Under water everything goes away.** The cut is far harder than any
+		# depth of air reaches, and it arrives on the frame the surface is
+		# crossed rather than fading in, because that is what going under sounds
+		# like. Crossing back up is the same moment in reverse, and it is the one
+		# piece of feedback that says the way out is working.
+		if sim.submerged:
+			want = minf(want, 620.0)
+		_lowpass.cutoff_hz = lerpf(_lowpass.cutoff_hz, want, SimUtil.smooth(6.0 if sim.submerged else 1.2, dt))
 
 	# **The mood arc is a crossfade on a gameplay quantity, never a playlist.**
 	# Depth is the quantity, and the layer that LEAVES does more than any that

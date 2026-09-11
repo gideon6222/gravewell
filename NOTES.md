@@ -986,3 +986,74 @@ layer toggles had ruled out the haze, the post, the buried quads and shadows.
 The memo now keys on the metre `_colour_at` CHOSE after comparing its
 neighbours, so two vertices a centimetre apart still pick different metres and
 still blend. Only the arithmetic behind the chosen metre is remembered.
+
+## 0.12.0: Drown, the third class (2026-09-11)
+
+Phase 2 opens with the class the plan calls "the most dramatic and the most
+work". Its rule: *water fills the tunnels you cut from the lowest point up, so a
+shaft becomes a well.*
+
+### 36. The first pressure the player CAUSES rather than meets
+
+Every other pressure in this game arrives whatever you do: the air thickens with
+depth, the hull drains past the Line, the collapse rises on a clock. Drown's
+water climbs because you cut the rock, and sitting still costs nothing.
+
+The arithmetic is the physical story: the rock down there is saturated, so every
+metre you open releases the water it was holding into the void network you have
+been cutting. The network is a shaft about a metre across, so a cell's worth of
+released water raises the level by roughly the fraction of the cell that was
+water - `WATER_RISE_PER_CELL` 0.15 is rock fifteen per cent water by volume. A
+full hundred-and-fifty-cell descent raises the surface about twenty metres, which
+is enough that the way home is visibly worse than the way down.
+
+**Derived, never stored.** `water_table` is fixed and `opened_below` is a count,
+so `water_depth()` is a subtraction: filling a room back in puts the water back
+exactly where it was, and there is no state that can drift. The count is taken
+against the ORIGINAL table and not the risen surface, or the rise feeds itself
+and the flood has no upper bound.
+
+### 37. Down becomes the expensive direction
+
+Submerged, water replaces air drag rather than adding to it, and buoyancy is an
+acceleration so the drag decides the terminal rise. For one world the motion of
+the whole game inverts. `WATER_BUOYANCY` 2.2 against `WATER_DRAG` 1.8 floats a
+ship left alone at about 1.2 m/s.
+
+Drowning is the Line, and it has an off switch that is always the same switch:
+`DROWN_HULL_RATE` 0.35 a second at the surface, doubling every 25 m under, and it
+stops the frame you break through.
+
+### 38. `submerged_at` must not ask whether the metre is open
+
+It did, and the ship drilled twenty metres under the surface while the game
+called it dry - because the metre a ship is standing in is the metre it is
+CUTTING, and that one is not worked out yet. The ship can only ever be somewhere
+it fits, and anywhere it fits below the surface is part of the flooded void.
+Depth alone. The same shape of fault as the buried lamp in 0.10.1.
+
+`is_submerged(x, d)`, which is about CELLS and is used for the picture, keeps the
+openness test: a cell is either water or rock.
+
+### 39. And the rectangles were the ambient, not the chunks
+
+The flat lighter rectangles that have been showing over the rock since the
+chunked mesh landed were not chunks at all. The spill carries light one cell onto
+a wall, so beside a one-metre shaft the lit band is three cells wide with a hard
+edge - and beyond it `lit` is zero, leaving only `ambient_floor`, which was a
+FLAT fill with no normal map on it. Unlit rock therefore had no surface at all
+and the boundary read as a rectangle of dead colour laid over the stone.
+
+Found by rendering `f.g` straight to ALBEDO after the haze, the post and the
+buried-quad path had each been ruled out by toggling them: the spill came out as
+a narrow vertical band with exactly those edges. Putting the same normal-map
+diffuse on the ambient keeps the relief going out into the dark, so the edge of
+the lamp's reach is a change in brightness rather than a change in whether the
+rock exists.
+
+### And a fixture that was right for the wrong reason
+
+`test_water_shortens_the_lamp` put its dry sample two metres UNDER the table and
+passed, because the metre there happened not to be open yet. That stopped being
+the deciding question the moment the ship could be under water in a cell it was
+still cutting. It asserts its own precondition now.

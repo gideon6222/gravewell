@@ -56,6 +56,12 @@ var plow_speed := 0.0
 ## along the path actually travelled rather than stamping it at a point.
 var last_pos := Vector2.ZERO
 
+## **Is the ship in Drown's water?** Set by `Sim` before the step, like
+## `plow_speed`. Water drags far harder than any air and pushes the hull upward,
+## so down becomes the expensive direction and the motion of the whole game is
+## inverted for one world.
+var in_water := false
+
 ## Where the escape samples the material, as offsets from the hull's centre.
 ##
 ## **Inset in X, out to the edge in Y**, and the asymmetry is the whole point. A
@@ -105,7 +111,15 @@ func step(dir: Vector2, load_kg: float, density: float, dt: float) -> void:
 	# Air drag. The same density that thickens the fog makes the deep heavy to
 	# fly in, from one number, so the picture and the handling agree.
 	var drag: float = clampf(Tuning.AIR_DRAG * density * dt, 0.0, 0.9)
+	if in_water:
+		# Water instead of air, not on top of it: a submerged ship is not flying
+		# through thick fog, it is swimming.
+		drag = clampf(Tuning.WATER_DRAG * dt, 0.0, 0.9)
 	vel *= (1.0 - drag)
+	if in_water:
+		# Buoyancy, applied as an acceleration so the drag above decides the
+		# terminal rise rather than a speed being assigned here.
+		vel.y -= Tuning.WATER_BUOYANCY * dt
 
 	if held:
 		_lane_pull(dir)

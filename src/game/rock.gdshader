@@ -214,7 +214,15 @@ void fragment() {
 	float diffuse = mix(0.35, 1.0, clamp(dot(n, l), 0.0, 1.0));
 
 	vec3 base = COLOR.rgb * lit * diffuse * gain;
-	base += COLOR.rgb * ambient_floor;
+	// **The ambient gets the surface too.** It was a flat fill, so rock the lamp
+	// has never reached had no texture at all - and since the spill only carries
+	// one cell onto the walls, the boundary between lit and unlit is a hard line
+	// a metre from the shaft. The result reads as a rectangle of dead colour laid
+	// over the rock, which is exactly what it was reported as. Putting the same
+	// normal-map diffuse on the ambient keeps the relief going out into the dark,
+	// so the edge of the lamp's reach is a change in brightness rather than a
+	// change in whether the rock exists.
+	base += COLOR.rgb * ambient_floor * diffuse;
 
 	// Emissive is exempt from the field on purpose and runs on a gentler curve:
 	// a glowing seam deep in the dark is the whole find-the-ore mechanic, and

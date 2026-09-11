@@ -1031,8 +1031,33 @@ and protrusions are what throw the hard wedges he is seeing.
 
 ### Phase 2: content and meta
 
-- [ ] The other five classes: Drown, Crush, Hollow, Verge, Quick, in that order. Drown first
-      because water is the most dramatic and the most work
+- [x] **M15. Drown, the third class.** (0.12.0) Water fills the tunnels you cut from the lowest point
+      up, so a shaft becomes a well. The class's rule, in the order it has to be built:
+
+      **The water table.** A depth per planet, below which every open cell holds water.
+      Digging below it floods what you cut, and the table RISES as you open volume beneath
+      it, so a long dig floods the shaft above you and the way home gets wet. That is the
+      pressure: it is caused by the player's own digging rather than by a timer.
+
+      **Buoyancy.** Submerged, the ship is dragged far harder and pushed upward, so flight
+      is sluggish and sinking is work. Going DOWN becomes the expensive direction, which
+      inverts the whole game's motion for one world.
+
+      **Drowning is the Line.** Submerged, the seals take it: the hull drains at a rate that
+      rises with depth below the surface. Diving deep in water is a decision with a clock on
+      it, and surfacing stops it.
+
+      **Light through water.** The lamp's reach is cut hard underwater and the air term takes
+      the water's colour, so a flooded tunnel reads instantly without a caption.
+
+      *Proves it:* `test_water.gd` - the table rises only when volume is opened below it,
+      a submerged ship is slower and rises, the hull drains only while submerged and stops
+      at the surface, and a scripted descent on a Drown planet actually gets wet.
+      `test_classes.gd` already asserts Drown differs from Cinder and Rime on at least
+      three of five channels and that its rule fires in a real descent.
+      *Film:* `drown-surface`, `drown-deep`.
+
+- [ ] The remaining four classes: Crush, Hollow, Verge, Quick, in that order
 - [ ] Vaults, the drill tier gate, and the keepsake per world
 - [ ] Log fragments and the log wall
 - [ ] The drive completing, the final world, and the ending, with the endless game behind it

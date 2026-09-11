@@ -67,6 +67,17 @@ var fine: PackedFloat32Array = PackedFloat32Array()
 var dirty_lo := Vector2i(0, 0)
 var dirty_hi := Vector2i(-1, -1)
 
+## **Drown's water, as two numbers.**
+##
+## `water_table` is where the surface sits before the player has opened anything
+## and never changes. `opened_below` counts the metres they have opened at or
+## under it, and the surface climbs from there - so the rise is reversible, is
+## proportional to the digging, and is exactly zero while the ship sits still.
+## Both are meaningless on a class that does not flood, where the surface is
+## parked below the bottom of the world.
+var water_table := 1.0e9
+var opened_below := 0
+
 ## **"Is this metre completely gone", cached, one byte each.**
 ##
 ## A derived cache and never a second opinion: it is recomputed from the fine
@@ -285,8 +296,50 @@ func _resettle(x: int, d: int) -> void:
 	var mean := _mean_fill(x, d)
 	var i := idx(x, d)
 	mean_cache[i] = mean
-	open_cache[i] = 1 if mean <= Tuning.METRE_OPEN else 0
+	var was := open_cache[i]
+	var now := 1 if mean <= Tuning.METRE_OPEN else 0
+	open_cache[i] = now
 	solid_cache[i] = 1 if mean >= 1.0 - 1.0e-6 else 0
+	# The water's count, kept incrementally. Measured against the ORIGINAL table
+	# and not against the risen surface, or the rise would feed itself: every
+	# metre the water climbed past would count as newly opened under it and raise
+	# it again, which is a flood with no upper bound.
+	if now != was and water_table <= 1.0e8 and float(d) >= water_table:
+		opened_below += 1 if now == 1 else -1
+
+
+## **Where the water surface is now**, in metres of depth. Everything open at or
+## below this holds water.
+##
+## Derived, never stored: the table is fixed and the rise is a count times a
+## constant, so filling a room back in puts the water back exactly where it was
+## and there is no state that can drift.
+func water_depth() -> float:
+	if water_table > 1.0e8:
+		return water_table
+	return water_table - float(opened_below) * Tuning.WATER_RISE_PER_CELL
+
+
+## Is this metre under water? Open space below the surface, and nothing else:
+## the water is in the room you made, not in the rock.
+func is_submerged(x: int, d: int) -> bool:
+	if water_table > 1.0e8:
+		return false
+	return float(d) >= water_depth() and is_open(x, d)
+
+
+## Is a POINT under water? The ship is not a cell, and the surface is a line it
+## crosses rather than a cell boundary it steps over.
+##
+## **Depth alone, with no openness test.** The ship can only ever be somewhere it
+## fits, and anywhere it fits below the surface is part of the flooded void. The
+## first version asked `is_open` about the metre the ship was standing in, which
+## is the metre it is CUTTING and therefore not worked out yet - so the ship
+## drilled twenty metres under the surface and the game still called it dry.
+func submerged_at(p: Vector2) -> bool:
+	if water_table > 1.0e8:
+		return false
+	return p.y >= water_depth()
 
 
 ## Is this metre entirely untouched? Out of bounds counts as solid at the sides
@@ -358,6 +411,9 @@ func _generate() -> void:
 			mat[i] = Ore.roll(float(d), _roll(x, d, Tuning.SEED_ORE))
 			set_fill(x, d, 1.0)
 			seam[i] = 1 if _roll(x, d, Tuning.SEED_SEAM) < Tuning.SEAM_CHANCE else 0
+
+	water_table = Classes.water_table(class_id)
+	opened_below = 0
 
 	_carve_caverns()
 	_place_caches()
