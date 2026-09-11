@@ -9,9 +9,20 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.10.0"
+const VERSION := "0.10.1"
 
 const RELEASES := [
+	{
+		"version": "0.10.1",
+		"date": "2026-09-11",
+		"title": "Rock you can feel the weight of",
+		"notes": [
+			"Denser material is genuinely harder to cut. Ore slows you more than rock, and a rich seam more again, so a vein is something you feel in the drill before you see what it paid.",
+			"Digging is slower than it was: about 2.2 m/s through surface rock against 7 m/s flying, so cutting reads as work rather than as driving.",
+			"The drill, the rumble and the shake now run from the first metre. They were silent for the whole first forty metres of every planet.",
+			"The lamp no longer goes out while you are buried in the rock you are cutting, which is most of the time now that the drill plows.",
+		],
+	},
 	{
 		"version": "0.10.0",
 		"date": "2026-09-11",

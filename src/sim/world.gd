@@ -278,8 +278,11 @@ func cut(x: int, d: int, hp: float) -> Dictionary:
 	if fill[i] <= Tuning.OPEN_FILL:
 		return out
 
-	var hardness := Tuning.hardness_at(float(d)) * Classes.hardness_mult(class_id)
 	var m := int(mat[i])
+	# Depth, class and MATERIAL, in that order. The material term is what makes a
+	# vein something you feel rather than only something you see: without it
+	# every cell in a band cut at exactly the same rate and the plow ran flat.
+	var hardness := Tuning.hardness_at(float(d)) * Classes.hardness_mult(class_id) 		* Ore.hardness_of(m, seam[i] == 1)
 	# The core takes far longer than anything else and it is meant to: the cut
 	# is the tell that the extraction is about to start.
 	if m == Ore.CORE:

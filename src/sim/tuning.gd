@@ -142,7 +142,7 @@ const IMPACT_DAMAGE := 6.0        ## hull per m/s above that
 #
 #     plow speed = drill power / (hardness * HP_PER_METRE)
 #
-const DRILL_RATE := 3.1           ## hit points a second at tier 0
+const DRILL_RATE := 2.2           ## hit points a second at tier 0
 const DRILL_REACH := 0.62         ## m from the ship's centre the nose bites at
 
 ## Hit points to advance one metre through hardness-1.0 rock. One cell of fill,
@@ -163,7 +163,7 @@ const HP_PER_METRE := 1.0
 ## so the deepest rock still plows at 0.67 m/s. The core multiplies hardness by
 ## six and is deliberately far below this - it is meant to be the slowest thing
 ## in the game, and it is one cell.
-const PLOW_MIN_ROCK := 0.5
+const PLOW_MIN_ROCK := 0.42
 
 ## The drill head is a DISC, feathered at its rim, swept along the path actually
 ## travelled this tick.
@@ -376,17 +376,33 @@ static func plow_speed(power: float, hardness: float) -> float:
 	return power / maxf(hardness * HP_PER_METRE, 0.001)
 
 
-## **How hard the work looks, in 0..1.** One number, and every channel that
-## sells the effort reads it: the particle rate and their colour, the drill
-## loop's pitch and filter, the haptic amplitude, the camera shake.
+## The hardness at which every effect channel is at full: heaviest rumble, lowest
+## drill note, most debris. Above the deepest band's plain rock, so the top of
+## the range belongs to dense ore in deep rock rather than to depth alone.
+const LOAD_FULL := 6.4
+## And the least it can ever read while the drill is actually turning.
+const LOAD_FLOOR := 0.15
+
+
+## **How hard the work looks, in 0..1.** One number, and every channel that sells
+## the effort reads it: the particle rate and their colour, the drill loop's
+## pitch and filter, the haptic cadence, the camera tremor.
 ##
 ## His ask: "the particles or effects will sell that something is taking a lot
 ## more work, or easy fluffy dirt." Four channels agreeing is what makes that
 ## read; four channels each with their own curve is what makes it mush.
+##
+## **It is measured from zero, not from the softest band, and it has a floor.**
+## The first version mapped `BAND_HP[0]` to exactly 0, so plain surface rock
+## reported no load at all - and since the first forty metres of every planet are
+## band 0, that meant the whole opening of the game had no drill sound, no
+## rumble and no tremor. Measured on the stretch he actually played: `dig_load`
+## read 0.00 for ten seconds straight. He described the result as the ship
+## driving through without slowing down, and he was describing silence as much as
+## speed.
 static func dig_load(hardness: float) -> float:
-	var lo: float = BAND_HP[0]
-	var hi: float = BAND_HP[BAND_HP.size() - 1]
-	return clampf((hardness - lo) / maxf(hi - lo, 0.001), 0.0, 1.0)
+	var t: float = clampf(hardness / LOAD_FULL, 0.0, 1.0)
+	return clampf(LOAD_FLOOR + t * (1.0 - LOAD_FLOOR), LOAD_FLOOR, 1.0)
 
 
 ## Hit points a cell at this depth. The only place hardness comes from.

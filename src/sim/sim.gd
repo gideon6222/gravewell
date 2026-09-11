@@ -322,10 +322,14 @@ func _hardness_under_head(dir: Vector2) -> float:
 		var dd := int(roundf(p.y))
 		if not world.in_bounds(x, dd) or world.fill[world.idx(x, dd)] <= Tuning.OPEN_FILL:
 			continue
-		var h := Tuning.hardness_at(float(dd)) * Classes.hardness_mult(world.class_id)
+		var mm: int = world.mat[world.idx(x, dd)]
+		# **The same three terms `World.cut` charges**, so the speed the hull
+		# advances at and the cost of the cell it is advancing through are one
+		# statement. Any difference here is the ship outrunning its own carve.
+		var h := Tuning.hardness_at(float(dd)) * Classes.hardness_mult(world.class_id) 			* Ore.hardness_of(mm, world.seam[world.idx(x, dd)] == 1)
 		# The core takes six times as long as anything else and it is meant to:
 		# the cut is the tell that the extraction is about to start.
-		if world.mat[world.idx(x, dd)] == Ore.CORE:
+		if mm == Ore.CORE:
 			h *= 6.0
 		hardest = maxf(hardest, h)
 	# Nothing solid under the hull: the drill is held while flying down a shaft

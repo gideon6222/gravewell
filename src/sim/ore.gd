@@ -61,6 +61,47 @@ static func yield_of(mat: int, seam: bool) -> Dictionary:
 	return {"kg": kg, "value": kg * per_kg * mult, "name": display}
 
 
+## **How much harder this material is to cut than plain rock.**
+##
+## Derived from its WEIGHT, not typed in. `kg` is already in the table as what a
+## cell of the stuff weighs, and "dense things take longer to get through" is the
+## same statement as "dense things are heavy to carry" - so the number the player
+## reads in the hold is the number that slowed them down getting it, and the two
+## can never drift apart.
+##
+## His ask: "I would rather ... get slowed down on denser materials, and the
+## particles or effects will sell that something is taking a lot more work, or
+## easy fluffy dirt." Measured before this existed: every material in the first
+## forty metres cut at exactly hardness 1.00, so there was nothing to be slowed
+## BY and the whole stretch he played ran at a flat 3.10 m/s.
+##
+## The exponent keeps the range readable. Raw density would make Voidglass 3.25
+## times the work of rock and, on top of the deepest band, fifteen times, which
+## is a wall rather than a slow patch.
+const DENSITY_POWER := 0.6
+
+## A seam is a richer pocket of the same ore, so it is denser again. This is what
+## makes finding one something you FEEL in the drill a moment before the payout
+## confirms it.
+const SEAM_HARDNESS := 1.25
+
+
+static func hardness_of(mat: int, seam: bool = false) -> float:
+	if mat == AIR:
+		return 0.0
+	# The cache and the core are not ore and do not follow the density rule: the
+	# core has its own multiplier at the call site, and a cache is a container.
+	if mat == CACHE or mat == CORE:
+		return 1.0
+	var kg := Tuning.SLAG_KG
+	for o in ORES:
+		if o["id"] == mat:
+			kg = o["kg"]
+			break
+	var h: float = pow(maxf(kg, 0.001) / Tuning.SLAG_KG, DENSITY_POWER)
+	return h * (SEAM_HARDNESS if seam else 1.0)
+
+
 ## How much a material glows on its own, before any lighting is applied.
 static func glow_of(mat: int) -> float:
 	for o in ORES:

@@ -811,3 +811,78 @@ The top row already carries three readouts. The smoke run now asserts the button
 does not intersect the d-pad, the bank, the depth, the hold or either gauge, at
 the phone's aspect - because a control that overlaps another is invisible to any
 test that only presses it.
+
+## 0.10.1: what 0.10.0 got wrong (2026-09-11)
+
+His reply to 0.10.0, with three screenshots: *"it looks like that broke
+something. the ship just drives directly through now without slowing down"*.
+
+He was right, and it was **three faults at once, all of them in the first forty
+metres, which is the only stretch he has played.** Measured rather than argued:
+
+```
+drilling straight down, the stretch he saw:
+  t= 1 s  depth  1.85 m  this second 1.85 m/s  load 0.00
+  t= 2 s  depth  4.95 m  this second 3.10 m/s  load 0.00
+  ...
+  t=10 s  depth 29.75 m  this second 3.10 m/s  load 0.00
+materials in the first 40 m: { ROCK: 312, IRON: 42, COBALT: 6 }
+hardness the drill sees for each: 1.00, 1.00, 1.00
+```
+
+### 27. There were no denser materials to be slowed by
+
+`World.cut` took its hardness from the DEPTH BAND alone, so every material in a
+band cut identically and "get slowed down on denser materials" could not
+happen at all. Band 0 runs 0 to 40 m, so the whole opening of every planet was
+one flat number.
+
+**Hardness is now derived from the material's WEIGHT**, which was already in the
+ore table as `kg`: `(kg / SLAG_KG) ^ 0.6`, times 1.25 for a seam. Rock 1.00, Iron
+1.28, Voidglass 1.99, a Voidglass seam 2.49. The number the player reads in the
+hold is the number that slowed them down getting it, so the two cannot drift.
+
+Measured after: the same ten seconds now runs 2.20, 1.97, 2.12, 1.74, 2.09,
+1.42, 1.53 m/s. That variation IS the feature.
+
+### 28. `dig_load` read 0.00 for the entire opening of the game
+
+The curve mapped `BAND_HP[0]` to exactly zero, and band 0 is the first forty
+metres. So the drill loop, the rumble, the tremor and the grit - every channel
+built in 0.10.0 to sell the work - were all switched off for the whole stretch he
+played. **Half of "it just drives through" was silence, not speed.**
+
+It now runs from a floor of 0.15 and reaches 1.0 only for dense ore in deep rock,
+so plain deep rock leaves headroom for a find to be heavier still.
+
+### 29. 3.10 m/s against 7.00 m/s flying is not digging
+
+`DRILL_RATE` 3.1 put surface rock at 3.10 m/s, under half of free flight, flat.
+Now 2.2, so surface rock plows at 2.20 and the deepest at 0.48. Probe: **1.06 m/s
+mean over six planets, 200 m in 189 s of pure digging** (was 1.55 and 129 s at
+0.10.0, and 1.26 and 159 s before the plow).
+
+### 30. The plow put the lamp inside rock, and the spill could not read it
+
+The worst of the three, and the one his second screenshot is entirely about: a
+ship in total blackness at 18 m with the power at 87%.
+
+`spill` took light only from OPEN neighbours. Once the drill became a plow the
+hull spends most of its time embedded in material it is still cutting, so the
+lamp's own cell is not passable, nothing within reach had a lit open neighbour,
+every face returned zero and **the light went out exactly while the player was
+digging**.
+
+The lamp's own cell is now a source whether or not it is passable. That is not a
+fudge: the ship is there, the hull has displaced the material, and the flood
+already gives that cell a value of exactly 1 by construction - the spill was the
+one place refusing to read it.
+
+### The rule under all four
+
+**A change to a core verb invalidates every number that was tuned around the old
+one, and the place to check is the stretch the player actually reaches.** All
+three of the first faults were invisible in the aggregate: the probe reported a
+healthy 1.55 m/s mean over 200 m, which is an average across five bands of a
+descent he has never once completed. The first forty metres are what he plays,
+and they were flat, silent and twice too fast.

@@ -141,13 +141,28 @@ static func flood(world: World, ox: int, od: int) -> PackedFloat32Array:
 ## Surfaces are lit by being NEAR a lit space, so a solid cell takes the
 ## brightest of its open neighbours. Without this every rock face is black,
 ## because the flood only ever reaches open cells and a wall is not one.
+##
+## ## The lamp's own cell counts as open, even when it is solid
+##
+## **The lamp is a physical object inside the material.** Once the drill became a
+## plow the ship spends most of its time embedded in rock it is still cutting, and
+## its own cell is then not passable - so nothing around it had a lit open
+## neighbour, the spill returned zero on every face within reach, and the lamp
+## went out exactly while the player was digging. He photographed it: a ship in
+## total blackness at 18 m with the power at 87%, and the note was that the ship
+## "just drives directly through".
+##
+## Treating the origin as open is not a fudge. The ship is there; the hull has
+## displaced the material; light leaves the lamp and lands on the faces around
+## it. The flood already gives that cell a value of exactly 1 by construction -
+## this is the one place that was refusing to read it.
 static func spill(world: World, field: PackedFloat32Array, ox: int, od: int) -> PackedFloat32Array:
 	var out := PackedFloat32Array()
 	out.resize(SIDE * SIDE)
 	for d in range(-R, R + 1):
 		for x in range(-R, R + 1):
 			var i := _local(x, d)
-			if world.is_open(ox + x, od + d):
+			if world.is_open(ox + x, od + d) or (x == 0 and d == 0):
 				out[i] = field[i]
 				continue
 			var best := 0.0
@@ -157,11 +172,19 @@ static func spill(world: World, field: PackedFloat32Array, ox: int, od: int) -> 
 						continue
 					if absi(x + sx) > R or absi(d + sy) > R:
 						continue
-					if not world.is_open(ox + x + sx, od + d + sy):
+					if not _is_source(world, ox, od, x + sx, d + sy):
 						continue
 					best = maxf(best, field[_local(x + sx, d + sy)])
 			out[i] = best
 	return out
+
+
+## Can light come OUT of this cell? Open ground can, and so can the lamp's own
+## cell whether or not it is passable, because the ship is physically there.
+static func _is_source(world: World, ox: int, od: int, x: int, d: int) -> bool:
+	if x == 0 and d == 0:
+		return true
+	return world.is_open(ox + x, od + d)
 
 
 ## The shadow fan: per bearing, how far light gets before something stops it.

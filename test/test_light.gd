@@ -311,3 +311,38 @@ func test_the_shadow_is_a_glow_and_not_a_fan_of_beams(t: TestHarness) -> void:
 	t.lt(worst, 0.5,
 		"the lit fraction jumps %.2f between neighbouring bearings, which is a wedge with an edge on it"
 			% worst)
+
+
+## **The lamp lights the rock it is buried in.**
+##
+## The plow leaves the hull inside material it is still cutting, which means the
+## lamp's own cell is routinely NOT passable. The spill only took light from open
+## neighbours, so a buried lamp had no lit neighbour anywhere, every face within
+## reach returned zero, and **the light went out exactly while the player was
+## digging** - which is the state the game spends most of its time in.
+##
+## He photographed it: a ship in total blackness at 18 m with the power at 87%.
+## The report was that the ship "just drives directly through", and half of that
+## was the picture going dark rather than anything about the speed.
+func test_a_buried_lamp_still_lights_the_face_it_is_cutting(t: TestHarness) -> void:
+	# Solid rock in every direction, with the lamp inside it. No tunnel at all,
+	# which is the worst case and the one the plow creates on its first bite.
+	var w := World.new(11)
+	var ox := 0
+	var od := 30
+	t.ok(not w.is_open(ox, od), "the fixture buries the lamp, or nothing is being tested")
+
+	var field := Light.flood(w, ox, od)
+	t.approx(Light.at(field, 0, 0), 1.0, 1.0e-4,
+		"the flood does not light its own origin, so there is no lamp at all")
+
+	var lit := Light.spill(w, field, ox, od)
+	for c in [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]:
+		t.gt(Light.at(lit, c.x, c.y), 0.5,
+			"the face at %s beside a buried lamp reads %.2f, so the lamp is inside a rock that eats it"
+				% [str(c), Light.at(lit, c.x, c.y)])
+
+	# And it is still LOCAL: burying the lamp must not light the whole window,
+	# or the fix has replaced a dark game with a flat one.
+	t.approx(Light.at(lit, 6, 0), 0.0, 1.0e-4,
+		"rock six cells from a buried lamp is lit, so the spill has stopped being a spill")

@@ -89,11 +89,22 @@ func test_hardness_spreads_the_speed_across_a_readable_range(t: TestHarness) -> 
 			"band %d is not slower to plow than band %d" % [i, i - 1])
 
 
-## The rate is **steady inside a band**. He asked for "a more consistent speed",
-## and the measurable form of that is the spread of progress across short windows
-## within one material, which under the old model ran from zero to a whole cell.
+## The rate is **steady inside one material**. He asked for "a more consistent
+## speed", and the measurable form of that is the spread of progress across short
+## windows, which under the old model ran from zero to a whole cell.
+##
+## **The fixture has to actually hold the material constant.** The first version
+## drove a real planet and called it "within one material", which stopped being
+## true the moment ore started cutting slower than rock: it read a 1.55x swing
+## and flagged as a regression the exact variation he had asked for. A test whose
+## name states a precondition has to establish it.
 func test_the_rate_is_steady_within_one_material(t: TestHarness) -> void:
 	var s := _sim(1)
+	# Plain rock, no seams, all the way down: the control.
+	for i in range(s.world.mat.size()):
+		if s.world.mat[i] != Ore.AIR:
+			s.world.mat[i] = Ore.ROCK
+		s.world.seam[i] = 0
 	# Settle first, so the acceleration ramp is not counted as unsteadiness.
 	_run(s, 1.5)
 	var lo := 1.0e9
@@ -103,9 +114,53 @@ func test_the_rate_is_steady_within_one_material(t: TestHarness) -> void:
 		lo = minf(lo, v)
 		hi = maxf(hi, v)
 	t.gt(lo, 0.0, "a half-second window of drilling made no progress at all")
-	t.lt(hi / lo, 1.45,
-		"the dig rate swings %.2fx between half-second windows in one material (%.2f to %.2f m/s)"
+	t.lt(hi / lo, 1.25,
+		"the dig rate swings %.2fx between half-second windows in ONE material (%.2f to %.2f m/s)"
 			% [hi / lo, lo, hi])
+
+
+## **And a denser material is measurably slower.** His ask, verbatim: "get slowed
+## down on denser materials".
+##
+## Measured before this existed: every material in the first forty metres cut at
+## hardness exactly 1.00, so the whole opening of the game ran at a flat 3.10 m/s
+## and there was nothing to be slowed BY. He described it as the ship driving
+## straight through.
+##
+## Hardness is derived from the material's WEIGHT rather than typed in, so the
+## number the player reads in the hold is the number that slowed them getting it.
+func test_a_denser_material_is_slower_to_cut(t: TestHarness) -> void:
+	var rock := Ore.hardness_of(Ore.ROCK)
+	var prev := rock
+	for m in [Ore.IRON, Ore.COBALT, Ore.ARGENT, Ore.PYRE, Ore.VOIDGLASS]:
+		var h := Ore.hardness_of(m)
+		t.gt(h, prev, "%s is not harder to cut than the material above it" % Ore.name_of(m))
+		prev = h
+	# A seam of the same ore is denser again, which is what makes finding one
+	# something felt in the drill a moment before the payout confirms it.
+	t.gt(Ore.hardness_of(Ore.IRON, true), Ore.hardness_of(Ore.IRON, false),
+		"a seam cuts the same as scattered ore, so a find has no weight to it")
+
+	# And the spread is one a thumb can feel without any of it reading as a wall.
+	var ratio := Ore.hardness_of(Ore.VOIDGLASS, true) / rock
+	t.gt(ratio, 1.8, "the richest ore is only %.2fx the work of plain rock, which is not felt" % ratio)
+	t.lt(ratio, 3.5, "the richest ore is %.2fx the work of plain rock, which is a wall" % ratio)
+
+	# Driven rather than asserted on the table alone: two identical descents, one
+	# through plain rock and one through solid iron.
+	var plain := _sim(1)
+	var dense := _sim(1)
+	for i in range(plain.world.mat.size()):
+		if plain.world.mat[i] != Ore.AIR:
+			plain.world.mat[i] = Ore.ROCK
+			dense.world.mat[i] = Ore.VOIDGLASS
+		plain.world.seam[i] = 0
+		dense.world.seam[i] = 0
+	var a: float = float(_run(plain, 6.0)["rate"])
+	var b: float = float(_run(dense, 6.0)["rate"])
+	t.gt(a / maxf(b, 0.001), 1.5,
+		"digging the densest ore runs at %.2f m/s against %.2f through rock, which is the same dig"
+			% [b, a])
 
 
 ## **The plow still pays for the hole.** Speed is derived from the same hit
@@ -182,7 +237,22 @@ func test_dig_load_is_monotonic_in_hardness_and_spans_its_range(t: TestHarness) 
 		t.ok(l >= 0.0 and l <= 1.0, "band %d reports a load of %.2f, outside 0..1" % [band, l])
 		t.gt(l, prev, "band %d is not a heavier load than the band above it" % band)
 		prev = l
-	t.lt(Tuning.dig_load(Tuning.BAND_HP[0]), 0.2,
+	# **Never zero while the drill is turning.** The first version mapped the
+	# softest band to exactly 0, and since the first forty metres of every planet
+	# ARE that band, the whole opening of the game ran with no drill sound, no
+	# rumble and no tremor. Measured on the stretch he played: 0.00 for ten
+	# seconds. He reported it as the ship driving through without slowing down,
+	# and half of what he was describing was the silence.
+	t.gt(Tuning.dig_load(Tuning.BAND_HP[0]), 0.2,
+		"the softest rock reports no load, so the opening of the game has no drill at all")
+	t.lt(Tuning.dig_load(Tuning.BAND_HP[0]), 0.45,
 		"the softest rock already reads as heavy work, so there is nothing for the deep to say")
-	t.gt(Tuning.dig_load(Tuning.BAND_HP[Tuning.BAND_HP.size() - 1]), 0.8,
-		"the hardest rock does not reach the top of the range")
+	# Depth alone does not reach the top of the range: that belongs to dense ore
+	# in deep rock, so the heaviest the drill ever sounds is a find and not a metre.
+	var deepest: float = Tuning.BAND_HP[Tuning.BAND_HP.size() - 1]
+	t.gt(Tuning.dig_load(deepest), 0.65,
+		"the deepest rock does not read as heavy work")
+	t.lt(Tuning.dig_load(deepest), 0.95,
+		"plain deep rock already maxes every effect, leaving nothing for a rich seam")
+	t.approx(Tuning.dig_load(deepest * Ore.hardness_of(Ore.VOIDGLASS, true)), 1.0, 1.0e-4,
+		"the richest ore in the deepest rock does not reach the top of the range")
