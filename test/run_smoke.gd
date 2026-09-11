@@ -80,6 +80,7 @@ func _run(main) -> void:
 	_check_the_game_makes_a_sound(main)
 	_check_the_lamp_is_one_light(main)
 	_check_the_pause_button(main)
+	_check_the_log_wall(main)
 	_check_the_back_button(main)
 
 	main.free()
@@ -213,6 +214,52 @@ func _check_the_pause_button(main) -> void:
 	_t.eq(shell.screen, Shell.Screen.PAUSED, "the pause button did not open the pause sheet")
 	_t.eq(shell._pause.visible, true, "the pause sheet is not drawn")
 	shell.go_back()
+
+
+## **The wall shows what has been found and hides what has not.**
+##
+## A collection screen that draws nothing until the player has something is a
+## screen nobody discovers, and one that leaks the text of a fragment they have
+## not opened gives away the only thing the game withholds. Both halves matter,
+## so both are asserted.
+func _check_the_log_wall(main) -> void:
+	_t.begin("smoke > the log wall")
+	var shell: Shell = main._shell
+	_t.ok(shell.sim != null, "the wall has no run to read, so it can only ever be blank")
+	_t.eq(shell.sim, main.sim, "the wall is reading a different run than the one being played")
+
+	# The table itself has to be real, or the wall is a frame around nothing.
+	_t.gt(Fragments.total(), 6, "there are almost no fragments written at all")
+	for p in range(1, 8):
+		_t.gt(Fragments.lines_of(p).size(), 0, "planet %d has no fragment written for it" % p)
+		_t.ok(not String(Fragments.keepsake_of(p)["name"]).is_empty(),
+			"planet %d has no keepsake" % p)
+
+	# Nothing found, nothing shown.
+	_t.eq(Fragments.found_on(1, 0), 0, "a planet with nothing picked up reports fragments anyway")
+	_t.eq(Fragments.found_on(1, 1), 1, "picking one up did not show one")
+	# And picking up more than exist cannot print more than exist.
+	_t.eq(Fragments.found_on(1, 99), Fragments.lines_of(1).size(),
+		"the wall prints more fragments for a planet than were ever written")
+
+	# It draws without throwing, with and without a find, which is the thing a
+	# table-driven screen actually fails at.
+	var sheet = shell._pause
+	# Typed arrays: an untyped literal will not assign to an `Array[int]`, and
+	# the failure is a script error rather than a test failure - which is exactly
+	# what the gate's error count exists to catch.
+	var none: Array[int] = []
+	main.sim.logs = none
+	main.sim.keepsakes = none.duplicate()
+	sheet.queue_redraw()
+	main.advance(0.1)
+	var some: Array[int] = [1, 1, 3]
+	var one: Array[int] = [1]
+	main.sim.logs = some
+	main.sim.keepsakes = one
+	sheet.queue_redraw()
+	main.advance(0.1)
+	_t.ok(true, "the wall drew with and without finds")
 
 
 ## **The back button unwinds one layer per press and never quits.** Both halves

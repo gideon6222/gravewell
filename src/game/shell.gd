@@ -49,6 +49,13 @@ var _confirm_wipe := false
 var _sheet_scroll := 0.0
 var _sheet_max := 0.0
 var _notes_mode := false
+## **The log wall.** A mode on the pause sheet rather than a screen of its own:
+## it is a thing you read while stopped, and the sheet already scrolls, already
+## pins its way out, and already knows how to wrap a line. A second screen would
+## be a second copy of all three.
+var _log_mode := false
+## The run, so the wall can say what has been found. Set by `main` when it binds.
+var sim: Sim
 
 var _music := 0.8
 var _sfx := 1.0
@@ -332,7 +339,14 @@ class PauseSheet extends Control:
 
 		# What's new, in the player's terms. The build stamp says whether an
 		# update landed; this says what it was.
+		# **The log wall.** What the vaults have given up, assembled rather than
+		# told: a fragment you have is printed, one you have not is a redacted
+		# line of the same length, so the shape of what is missing is visible and
+		# the count is honest.
 		y += 130.0
+		if y <= _bottom():
+			y = _draw_logs(y)
+
 		if y > _bottom():
 			return
 		draw_string(_face, Vector2(56.0, y), "WHAT'S NEW", HORIZONTAL_ALIGNMENT_LEFT, -1, 40, Hud.INK)
@@ -373,6 +387,64 @@ class PauseSheet extends Control:
 		draw_rect(Rect2(at, Vector2(w, 46.0)), Hud.EDGE, false, 2.0)
 		draw_string(_mono, at + Vector2(w - 70.0, 34.0), "%d%%" % int(v * 100.0),
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Hud.INK)
+
+	## The wall. Returns the y it finished at, so the patch notes carry on below.
+	func _draw_logs(y0: float) -> float:
+		var y := y0
+		var s: Sim = shell.sim
+		if s == null:
+			return y
+		var have := 0
+		for p in range(1, 8):
+			have += Fragments.found_on(p, _picked(s, p))
+		draw_string(_face, Vector2(56.0, y), "THE WALL", HORIZONTAL_ALIGNMENT_LEFT, -1, 40, Hud.INK)
+		draw_string(_mono, Vector2(size.x - 200.0, y), "%d / %d" % [have, Fragments.total()],
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Hud.DIM)
+		y += 22.0
+
+		for p in range(1, 8):
+			var lines := Fragments.lines_of(p)
+			if lines.is_empty():
+				continue
+			var got := Fragments.found_on(p, _picked(s, p))
+			y += 44.0
+			if y > size.y + 40.0:
+				return y
+			# The keepsake heads its own world, and only once it is in hand.
+			var keep: Dictionary = Fragments.keepsake_of(p)
+			var has_keep: bool = s.keepsakes.has(p)
+			draw_string(_mono, Vector2(58.0, y),
+				"%s" % (String(keep["name"]) if has_keep else "- - - -"),
+				HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Hud.GLOW if has_keep else Hud.DIM)
+			if has_keep:
+				y += 34.0
+				draw_multiline_string(_mono, Vector2(74.0, y), String(keep["note"]),
+					HORIZONTAL_ALIGNMENT_LEFT, size.x - 140.0, 22, 2, Hud.DIM)
+				y += 24.0
+			for i in range(lines.size()):
+				y += 34.0
+				if y > size.y + 40.0:
+					return y
+				if i < got:
+					draw_multiline_string(_mono, Vector2(74.0, y), String(lines[i]["text"]),
+						HORIZONTAL_ALIGNMENT_LEFT, size.x - 140.0, 24, 2, Hud.INK)
+					y += 22.0
+				else:
+					# Redacted to the same length, so the gap has a shape.
+					var n: int = String(lines[i]["text"]).length()
+					draw_string(_mono, Vector2(74.0, y), "_".repeat(mini(n, 44)),
+						HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Hud.DIM)
+		return y + 30.0
+
+
+	## How many fragments the player has picked up on one planet.
+	func _picked(s: Sim, planet: int) -> int:
+		var n := 0
+		for l in s.logs:
+			if int(l) == planet:
+				n += 1
+		return n
+
 
 	func _draw_band(band: Rect2) -> void:
 		draw_rect(band, Color(0.02, 0.021, 0.028, 1.0), true)

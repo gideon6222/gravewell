@@ -1122,3 +1122,72 @@ the post and the buried path; `debug_term 3` showed the patchwork in one frame.
 The Drown surface uniform was parked at -1e6 for classes with no water, which is
 *above* the whole planet: every class rendered as submerged and Crush came out
 blue. The smoke run asserts the parking spot is below the core now.
+
+## 0.14.0: the last three classes, vaults, and the wall (2026-09-11)
+
+Three milestones in one pass, because the classes share a shape and the vaults,
+the keepsakes and the wall are one content system.
+
+### 44. Hollow, Verge, Quick
+
+| class | rule | what it costs |
+|---|---|---|
+| Hollow | 62% cavern chance at 2.3x radius, so it is flown | falls cost 2.4x |
+| Verge | the pressure is on the BATTERY | 1.9 power/s at the core, 70% of it the lamp's fault |
+| Quick | cuts heal wherever the lamp is not | the way home closes behind you |
+
+Verge is the one worth calling out: it is the only world that does not go for the
+hull, so the question it asks is "can you get out before the lamp does" rather
+than "can the ship survive this". Its counter is a button the player already has.
+`pressure_rate()` returns zero there - **instead of the hull, not as well as** -
+because a world that takes both is just a harder version of every other world.
+
+### 45. Three tests that passed for the wrong reason
+
+Verifying by reintroducing the fault caught two of them and the third came out of
+a fixture:
+
+- **"running dark lasts longer" passed with the surge's dependence on the lamp
+  removed entirely**, because a dark lamp recharges on every world. The claim is
+  that the world hunts your LIGHT, so it now asserts on `surge_rate()` directly.
+- **"the lamp holds the tunnel open" passed with the lamp's effect removed**,
+  because its near sample was a metre from the ship and suppressed by `HEAL_SAFE`
+  whatever the ramp said. Both samples sit outside the safe radius now.
+- **"a fall hurts" failed because nothing falls in this game.** A released ship
+  coasts to a stop inside a metre, so a fixture that sets a velocity and lets go
+  arrives below the free-impact speed and costs nothing anywhere. The second
+  version then ran out of ticks in mid-air, which reads identically.
+
+### 46. Quick's heal: a route check that made the rule toothless
+
+The first version refused any seal that would break the route to the surface,
+which is the discipline a Rime collapse keeps. **On a one-metre shaft every cell
+is the only way out**, so it refused every seal and the tunnel never closed at
+all - the rule was inert in exactly the case it exists for. It was also far too
+slow: `route_out` is a search over the whole world and it was being asked per
+cell, which took the suite from two minutes to not finishing.
+
+The guarantee is smaller and better: nothing heals within `HEAL_SAFE` of the
+ship. A ship that can always turn and cut can always dig its way back, so a
+closed tunnel is a cost in power and time rather than a death.
+
+And it sweeps the WHOLE world rather than a window, because a window meant
+everything already left behind stayed open forever, which is the opposite of the
+rule. It is affordable because almost every cell is solid and the first test is a
+byte read.
+
+### 47. The generator was quietly retuning a balance number
+
+Adding vaults made every Drown planet three metres wetter before the first
+descent started: vault chambers are generated below the water table, and the
+water's "opened below" count was incrementing for them. **A void that has always
+been there is already full** - it released its water long before anyone arrived -
+so the count resets to zero at the end of generation and only the player's
+digging raises the table.
+
+### 48. And the gate caught a script error the assertions could not
+
+The log wall's smoke check assigned an untyped array literal to an `Array[int]`,
+which is a script error rather than a failed assertion: the suite printed "176
+assertions, all passing" and `check.ps1` failed the step on the error count. That
+is the blind-gate fix from 0.10.0 earning its keep for the first time.

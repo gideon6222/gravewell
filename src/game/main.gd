@@ -355,6 +355,7 @@ func _build_ui() -> void:
 
 	_shell = Shell.new()
 	_shell.setup()
+	_shell.sim = sim
 	_ui.add_child(_shell)
 	_shell.start_new.connect(_on_new_game)
 	_shell.resume.connect(_on_resume)
@@ -456,6 +457,8 @@ func _on_resume() -> void:
 ## new game or a load cannot leave half the game reading the old one.
 func _rebind() -> void:
 	_terrain.setup(sim.world, _rock_mat)
+	if _shell != null:
+		_shell.sim = sim
 	_hud.sim = sim
 	_field.touch()
 	_terrain.touch()
@@ -499,7 +502,9 @@ func _tick(dt: float) -> void:
 	# The vignette closes past the Line, which is the fourth thing landing on
 	# that metre and the only one the player feels rather than reads.
 	_post_mat.set_shader_parameter("pressure",
-		clampf(sim.pressure_rate() / 3.0, 0.0, 1.0))
+		# Whatever the world is taking, on whichever gauge. The vignette closes on
+		# pressure, and on Verge the pressure is on the cell.
+		clampf(maxf(sim.pressure_rate(), sim.surge_rate() * 0.5) / 3.0, 0.0, 1.0))
 	_hud.tick(dt)
 	_dig_feedback(dt)
 

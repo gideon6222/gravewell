@@ -20,6 +20,16 @@ const VOIDGLASS := 6
 const CACHE := 7
 const CORE := 8
 
+## **The hard gate.** A seal a drill below its tier simply cannot cut, and the
+## only one in the game: every other rung on the ladder is a soft speedup, and a
+## ladder of pure soft speedups makes repeat runs predictable - the documented
+## critique of Dome Keeper, and the reason this exists at all.
+const VAULT := 9
+## What is behind one. Neither is ore and neither pays credits: a vault that paid
+## money would be a slow mine.
+const KEEPSAKE := 10
+const LOG := 11
+
 ## The ore table, **ordered deepest-first with each entry's chance strictly
 ## lower than the next**. That ordering is what makes adding a new deepest ore
 ## convert only the band directly above it instead of reshuffling every band in
@@ -46,7 +56,7 @@ const ORES: Array[Dictionary] = [
 ## payout come from the same roll, so what is drawn on the wall and what it
 ## pays are true by construction rather than by two systems agreeing.
 static func yield_of(mat: int, seam: bool) -> Dictionary:
-	if mat == AIR or mat == CACHE or mat == CORE:
+	if mat == AIR or mat == CACHE or mat == CORE or mat == VAULT 			or mat == KEEPSAKE or mat == LOG:
 		return {"kg": 0.0, "value": 0.0, "name": ""}
 	var kg := Tuning.SLAG_KG
 	var per_kg := Tuning.SLAG_VALUE
@@ -91,8 +101,12 @@ static func hardness_of(mat: int, seam: bool = false) -> float:
 		return 0.0
 	# The cache and the core are not ore and do not follow the density rule: the
 	# core has its own multiplier at the call site, and a cache is a container.
-	if mat == CACHE or mat == CORE:
+	if mat == CACHE or mat == CORE or mat == KEEPSAKE or mat == LOG:
 		return 1.0
+	# A seal is denser than anything around it, which is half of why the drill
+	# cannot get through it and all of why it sounds different when you try.
+	if mat == VAULT:
+		return 2.4
 	var kg := Tuning.SLAG_KG
 	for o in ORES:
 		if o["id"] == mat:
@@ -116,6 +130,9 @@ static func name_of(mat: int) -> String:
 		ROCK: return "Slag"
 		CACHE: return "Cache"
 		CORE: return "Core"
+		VAULT: return "Seal"
+		KEEPSAKE: return "Keepsake"
+		LOG: return "Fragment"
 	for o in ORES:
 		if o["id"] == mat:
 			return o["name"]

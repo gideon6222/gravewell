@@ -20,7 +20,7 @@ const SETTINGS := "user://settings.cfg"
 
 ## Bumped when the shape changes. A load that does not recognise the version
 ## starts fresh rather than half-reading an old one into a new game.
-const VERSION := 1
+const VERSION := 2
 
 ## **A one-way latch.** Erasing progress has to survive the save that fires on
 ## the way out: without this, wiping progress and then backgrounding the app
@@ -46,6 +46,8 @@ static func write(sim: Sim) -> void:
 		"class": sim.world.class_id,
 		"levels": sim.levels,
 		"bought": sim.bought,
+		"keepsakes": sim.keepsakes,
+		"logs": sim.logs,
 	}))
 	f.close()
 
@@ -73,6 +75,15 @@ static func read(sim: Sim) -> bool:
 	sim.record = float(d.get("record", 0.0))
 	sim.planet = int(d.get("planet", 1))
 	sim.bought = int(d.get("bought", 0))
+	# **The things you keep.** A keepsake and a log fragment are not currency and
+	# not progress on a ladder: they are the reason to have gone, so losing them
+	# to a save format change would lose the only permanent thing in the game.
+	sim.keepsakes = []
+	for k in (d.get("keepsakes", []) as Array):
+		sim.keepsakes.append(int(k))
+	sim.logs = []
+	for k in (d.get("logs", []) as Array):
+		sim.logs.append(int(k))
 	# The ladder comes back as a Dictionary of Variants; the levels have to be
 	# ints or every `mult()` lookup indexes an array with a float.
 	sim.levels = {}

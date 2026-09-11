@@ -125,6 +125,14 @@ static func counter_cost(id: String, level: int) -> int:
 
 
 ## The multiplier a ladder is at, clamped so a level past the end is the top.
+## How many rungs a ladder has, so nothing has to know the shape of the table to
+## ask whether a tier exists. The vault seals ask for a tier and the test asserts
+## the tier is one the player can actually buy.
+static func rungs(id: String) -> int:
+	var u := ladder_of(id)
+	return (u["mult"] as Array).size() if not u.is_empty() else 0
+
+
 static func mult(id: String, level: int) -> float:
 	var u := ladder_of(id)
 	if u.is_empty() or not u.has("mult"):

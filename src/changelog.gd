@@ -9,9 +9,22 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.13.0"
+const VERSION := "0.14.0"
 
 const RELEASES := [
+	{
+		"version": "0.14.0",
+		"date": "2026-09-11",
+		"title": "All seven worlds, and the things worth keeping",
+		"notes": [
+			"Hollow: enormous caverns, so you fly it more than you dig it, and the floor is the hazard the other worlds do not have.",
+			"Verge: something down there is still drawing current, and it comes for the battery rather than the hull. Running dark is the answer.",
+			"Quick: the rock is not dead. Cuts close behind you, everywhere except where your lamp is, so going dark to save power costs you the way home.",
+			"Vaults: sealed places a drill too weak cannot open, and trying costs nothing. Behind them are log fragments and one keepsake per world.",
+			"The wall, in the pause screen: what you have found is written out, and what you have not is a gap the right shape.",
+			"Everything required is still reachable with no vault ever opened.",
+		],
+	},
 	{
 		"version": "0.13.0",
 		"date": "2026-09-11",

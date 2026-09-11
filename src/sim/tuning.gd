@@ -411,6 +411,57 @@ const WATER_LAMP := 0.55
 ## takings; it may never take the run.
 const CRUSH_RATE := 0.34
 
+## **Verge's current, which goes for the battery and not the hull.**
+##
+## Power a second at the core, from the Line down, and it scales with how much
+## the lamp is drawing: the thing hunting you on Verge is your own light, and
+## going dark is the counter. Every other world's counter costs money; this one's
+## costs sight, which the player already has a button for.
+const SURGE_RATE := 1.9
+## How much of the surge is the LAMP's fault rather than the ship's. At 0.7, a
+## dark run takes under half the drain of a flooded one.
+const SURGE_LAMP_SHARE := 0.7
+
+## **Quick's healing, in fill a second.** Slow enough that a tunnel is usable for
+## a good while after it is cut and fast enough that a long detour is a decision.
+## At 0.02 a fully open cell is shut in about fifty seconds of darkness.
+const HEAL_RATE := 0.02
+## How far from the ship healing is suppressed entirely, in metres, and how much
+## of the rate survives at the edge of that. The lamp holds the tunnel open, so
+## the reach follows the lamp rather than being a constant.
+const HEAL_LIGHT_FLOOR := 0.12
+## How often the healing sweeps. It is a slow sweep rather than a per-frame one: the tunnel closes over tens of
+## seconds, so asking sixty times a second is sixty times the cost for a result
+## nobody can tell apart. A quarter of a second is four sweeps a second.
+## Nothing heals within this of the ship, whatever the lamp is doing. **This is
+## what stops the rule taking the run**, and it replaced a route search: on a
+## one-metre shaft EVERY cell is the only way out, so a route check refused every
+## seal and the tunnel never closed at all - the rule was toothless in exactly the
+## case it was written for. A ship that always has room to turn and cut can always
+## dig its way back, which makes a closed tunnel a cost in power and time rather
+## than a death.
+const HEAL_SAFE := 2.6
+const HEAL_TICK := 0.25
+
+## **Vaults: the only hard gate in the game.**
+##
+## One candidate per block, like the caches, so the spacing is a property of the
+## block grid rather than of a per-cell roll that clumps. A vault you trip over is
+## not a secret and a vault you never meet is not a gate.
+const VAULT_BLOCK := 46
+const VAULT_MIN_DEPTH := 22
+## The chamber behind the seal, in cells either side of its centre.
+const VAULT_RADIUS := 2
+
+## **What tier of drill a seal at this depth asks for.**
+##
+## Derived from the depth rather than stored, so a seal's demand is a property of
+## where it is and there is no second number to drift. Shallow seals ask for tier
+## 1, which a player reaches in an hour or two; the deepest ask for near the top
+## of the ladder, which is the sixth-hour return the plan is describing.
+static func vault_tier(depth: float) -> int:
+	return clampi(1 + int(maxf(depth, 0.0) / 52.0), 1, 4)
+
 # ── ore ───────────────────────────────────────────────────────────────────
 # Cargo is WEIGHT, never units. Two things the player cannot compare on screen
 # are not a choice, and counting units made dirt and rubies take the same slot.

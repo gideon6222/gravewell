@@ -285,8 +285,17 @@ func tick(dt: float) -> void:
 	_load_btn.text = "%.0f/%.0f kg" % [sim.load_kg, Tuning.HOLD_KG]
 	_bank.text = "%s cr   %d fil" % [SimUtil.fmt(sim.credits), sim.filament]
 
+	# **Whichever gauge is actually going down.** Verge's pressure is on the
+	# battery rather than the hull, so a readout hard-wired to HULL would show
+	# nothing at all on the one world where the number matters most.
 	var rate := sim.pressure_rate()
-	_rate.text = "HULL -%.1f/s" % rate if rate > 0.0 else ""
+	var surge := sim.surge_rate()
+	if surge > rate:
+		_rate.text = "PWR -%.1f/s" % surge
+	elif rate > 0.0:
+		_rate.text = "HULL -%.1f/s" % rate
+	else:
+		_rate.text = ""
 
 	# "Unavailable" and "not a control" are two different booleans, and only
 	# refusal is grey. UPLINK with an empty hold is not a refusal, it is nothing

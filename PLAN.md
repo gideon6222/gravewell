@@ -1062,9 +1062,17 @@ and protrusions are what throw the hard wedges he is seeing.
       from the pad instead of past a Line. The one world with no metre to cross.
       *Proves it:* `test_crush.gd`, including that the rate the HUD shows is the rate the
       hull loses - `pressure_rate()` and the drain were two copies of one formula.
-- [ ] The remaining three classes: Hollow, Verge, Quick, in that order
-- [ ] Vaults, the drill tier gate, and the keepsake per world
-- [ ] Log fragments and the log wall
+- [x] **M17. Hollow, Verge and Quick.** (0.14.0) All seven classes built. Hollow is flown
+      rather than dug and its floor is the hazard; Verge goes for the BATTERY instead of the
+      hull and going dark is the counter; Quick takes the tunnel back wherever the lamp is
+      not. *Proves it:* `test_hollow.gd`, `test_verge.gd`, `test_quick.gd`.
+- [x] **M18. Vaults, the drill tier gate, and the keepsake per world.** (0.14.0) The only
+      hard gate in the game: a seal a drill below its tier cannot cut and is not charged for
+      trying. One keepsake per planet in its deepest vault, log fragments in the rest, and
+      the core reachable with zero vaults opened. *Proves it:* `test_vault.gd`.
+- [x] **M19. Log fragments and the log wall.** (0.14.0) A mode on the pause sheet: what you
+      have is printed, what you have not is redacted to the same length so the gap has a
+      shape, and the count is honest. *Proves it:* the smoke run's wall check.
 - [ ] The drive completing, the final world, and the ending, with the endless game behind it
 - [ ] The full consumable and ordnance set, including the collapse charge and the flare
 - [ ] Second-tier upgrades and the Survey instrument that gives a bearing and never a marker

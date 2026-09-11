@@ -28,6 +28,11 @@ signal hull_hit(speed: float)
 signal uplinked(value: float, cost: float)
 signal descent_over(outcome: String)
 signal core_cut(seconds: float)
+## A seal refused the drill. The HUD says which tier it wants, because a refusal
+## nobody can read is a bug report rather than a gate.
+signal seal_refused(tier: int)
+signal found_keepsake(planet: int)
+signal found_log(planet: int)
 signal drill_bite(hardness: float)
 signal collapsed(x: int, d: int)
 
@@ -87,6 +92,17 @@ var dig_load: float = 0.0
 ## the drain, the lamp, the audio and the picture, so none of them can disagree
 ## about whether the player is swimming.
 var submerged := false
+
+## Countdown to Quick's next healing sweep.
+var _heal_wait := 0.0
+
+## **What the vaults gave up, and it is never money.**
+##
+## One keepsake per planet and a log fragment per other vault. Both persist
+## across runs - they are the thing you keep, which is what `PLAYER.md` says he
+## comes back for - and neither is worth a credit.
+var keepsakes: Array[int] = []
+var logs: Array[int] = []
 
 ## The extraction. `rising` is the depth the world has died up to: everything
 ## below it is gone, and when it reaches the ship the run is over.
@@ -278,13 +294,23 @@ func step(dir: Vector2, drilling: bool, dt: float) -> void:
 	flight.step(dir, load_kg, density, dt)
 
 	if flight.impact_speed > Tuning.IMPACT_FREE_SPEED and not drill_engaged:
-		hull -= (flight.impact_speed - Tuning.IMPACT_FREE_SPEED) * Tuning.IMPACT_DAMAGE
+		# The world gets a say in what a fall costs. Hollow is flown rather than
+		# dug, so its floor is the hazard the other worlds do not have.
+		hull -= (flight.impact_speed - Tuning.IMPACT_FREE_SPEED) * Tuning.IMPACT_DAMAGE 			* Classes.fall_mult(world.class_id)
 		hull_hit.emit(flight.impact_speed)
 
 	_drain(dir, dt)
 	if drill_engaged:
 		_drill(dt)
 	_pressure(d, dt)
+	power -= surge_rate() * dt
+	# Quick takes the tunnel back, everywhere the lamp is not. On its own slow
+	# cadence, with the whole interval's worth of healing applied at once.
+	if Classes.heals(world.class_id):
+		_heal_wait -= dt
+		if _heal_wait <= 0.0:
+			world.heal(flight.pos, lamp_reach(), Tuning.HEAL_TICK)
+			_heal_wait += Tuning.HEAL_TICK
 	_settle(dt)
 	_collect()
 	if phase == Phase.EXTRACTION:
@@ -364,7 +390,9 @@ func _drill(dt: float) -> void:
 	var res := world.carve(
 		flight.last_pos, flight.pos,
 		Tuning.BRUSH_RADIUS, Tuning.BRUSH_FEATHER,
-		drill_rate() * dt)
+		drill_rate() * dt, level_of("drill"))
+	if bool(res["sealed"]):
+		seal_refused.emit(Tuning.vault_tier(flight.depth()))
 	var spent := float(res["cut"])
 	if spent <= 0.0:
 		return
@@ -379,6 +407,10 @@ func _drill(dt: float) -> void:
 	if int(res["filament"]) > 0:
 		filament += int(res["filament"])
 		found_cache.emit(int(res["filament"]))
+	if bool(res["keepsake"]):
+		take_keepsake()
+	for _i in range(int(res["logs"])):
+		take_log()
 
 	for e in (res["cells"] as Array):
 		var cell: Dictionary = e
@@ -393,6 +425,22 @@ func _drill(dt: float) -> void:
 				"mat": int(cell["mat"]), "kg": kg, "value": value})
 		else:
 			_stow(int(cell["mat"]), kg, value)
+
+
+## **Banked once, and never again.** The planet's own memento: taking it twice
+## would make a vault a mine, which is the one thing it must not be.
+func take_keepsake() -> void:
+	if keepsakes.has(planet):
+		return
+	keepsakes.append(planet)
+	found_keepsake.emit(planet)
+
+
+## Log fragments are counted per planet and can repeat: a planet has several
+## vaults and the story is assembled rather than told.
+func take_log() -> void:
+	logs.append(planet)
+	found_log.emit(planet)
 
 
 func _stow(m: int, kg: float, value: float) -> void:
@@ -555,6 +603,12 @@ func pressure_rate() -> float:
 
 	if Classes.crushes(world.class_id):
 		rate += Tuning.CRUSH_RATE * maxf(d, 0.0) / float(Tuning.CORE_DEPTH) * relief
+	elif Classes.drains_power(world.class_id):
+		# Verge's pressure is on the BATTERY instead of the hull, not as well as.
+		# A world that takes both is just a harder version of every other world,
+		# and the whole point of this one is that the question it asks is a
+		# different question.
+		pass
 	elif d >= float(Tuning.LINE_DEPTH):
 		var excess: float = Tuning.density_at(d) - Tuning.density_at(float(Tuning.LINE_DEPTH))
 		rate += maxf(Tuning.PRESSURE_RATE * excess * relief, 0.0)
@@ -570,6 +624,27 @@ func pressure_rate() -> float:
 			rate += Tuning.DROWN_HULL_RATE * (1.0 + under / Tuning.DROWN_HULL_SCALE) * relief
 
 	return rate
+
+
+## **Verge's current, per second, on the BATTERY.**
+##
+## The only pressure in the game that does not go for the hull, and the reason it
+## is interesting: every other world asks whether the ship survives, and this one
+## asks whether you get out before the lamp does. Most of it is the lamp's own
+## draw, so the counter is a button the player already has.
+##
+## Same discipline as `pressure_rate`: one function computes it, `_drain` applies
+## it, and the HUD reads this rather than a second copy.
+func surge_rate() -> float:
+	if not Classes.drains_power(world.class_id):
+		return 0.0
+	var d := flight.depth()
+	if d < float(Tuning.LINE_DEPTH):
+		return 0.0
+	var past := (d - float(Tuning.LINE_DEPTH)) / maxf(float(Tuning.CORE_DEPTH - Tuning.LINE_DEPTH), 1.0)
+	var lamp: float = Tuning.LAMP_DRAIN[lamp_mode] / maxf(Tuning.LAMP_DRAIN[0], 0.001)
+	var share: float = (1.0 - Tuning.SURGE_LAMP_SHARE) + Tuning.SURGE_LAMP_SHARE * lamp
+	return Tuning.SURGE_RATE * clampf(past, 0.0, 1.0) * share
 
 
 # ── selling, without a journey ────────────────────────────────────────────

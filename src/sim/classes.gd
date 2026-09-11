@@ -11,14 +11,18 @@ extends RefCounted
 ## A palette is a still image: two worlds painted differently still behave
 ## identically, and a player learns that in one descent.
 ##
-## Seven classes in the plan. Four are built: Cinder is the control, Rime is the
-## one that proves the point, Drown is the one whose pressure the player causes
-## rather than meets, and Crush is the one with no Line in it at all.
+## **All seven.** Cinder is the control. Rime proves the point. Drown's pressure is
+## caused by the player. Crush has no Line in it at all. Hollow is flown rather
+## than dug. Verge goes for the battery instead of the hull. Quick takes the
+## tunnel back.
 
 const CINDER := 0
 const RIME := 1
 const DROWN := 2
 const CRUSH := 3
+const HOLLOW := 4
+const VERGE := 5
+const QUICK := 6
 
 ## Every field here is read by something. A class that only sets colours is a
 ## palette wearing a rule's clothes, and `test_classes.gd` asserts that any two
@@ -135,6 +139,86 @@ const ALL: Array[Dictionary] = [
 			Color(0.014, 0.012, 0.024),
 		],
 	},
+	{
+		"id": HOLLOW,
+		"name": "Hollow",
+		"blurb": "eaten out. you fly it more than you dig it",
+		"hardness": 0.85,
+		"cut_noise": 0.0,
+		# **Light carries far, and that is not generosity.** A room you cannot see
+		# across is a black screen; a room you can see across is a room. The scale
+		# of the dark is the whole point of the class and it has to be legible.
+		"detour_att": 0.18,
+		"lamp": 1.35,
+		"line": "THE DROP",
+		"line_note": "the floor is a long way down",
+		# **The rule.** Enormous caverns, and a floor that hurts.
+		"cavern_chance": 0.62,
+		"cavern_scale": 2.3,
+		"fall": 2.4,
+		"brittle": false,
+		"tint": [
+			Color(0.90, 0.88, 0.82), Color(0.80, 0.80, 0.78), Color(0.72, 0.70, 0.68),
+			Color(0.62, 0.58, 0.58), Color(0.52, 0.48, 0.50),
+		],
+		"air": [
+			Color(0.038, 0.040, 0.044), Color(0.034, 0.037, 0.042),
+			Color(0.030, 0.033, 0.040), Color(0.026, 0.029, 0.037),
+			Color(0.022, 0.025, 0.034),
+		],
+	},
+	{
+		"id": VERGE,
+		"name": "Verge",
+		"blurb": "inhabited once. some of it still has current",
+		"hardness": 1.15,
+		"cut_noise": 0.0,
+		"detour_att": 0.42,
+		"lamp": 1.0,
+		"line": "CURRENT",
+		"line_note": "something is still drawing",
+		# **The rule.** The only pressure in the game that goes for the BATTERY.
+		# Every other world asks whether the ship survives; this one asks whether
+		# you get out before the lamp does, and the counter is going dark.
+		"drains_power": true,
+		"cavern_chance": 0.20,
+		"brittle": false,
+		"tint": [
+			Color(0.74, 0.78, 0.72), Color(0.62, 0.72, 0.70), Color(0.50, 0.78, 0.66),
+			Color(0.86, 0.62, 0.30), Color(0.94, 0.40, 0.44),
+		],
+		"air": [
+			Color(0.036, 0.048, 0.044), Color(0.030, 0.050, 0.046),
+			Color(0.026, 0.060, 0.050), Color(0.058, 0.044, 0.026),
+			Color(0.070, 0.026, 0.032),
+		],
+	},
+	{
+		"id": QUICK,
+		"name": "Quick",
+		"blurb": "not dead. the cuts close behind you",
+		"hardness": 0.75,
+		"cut_noise": 0.0,
+		"detour_att": 0.62,
+		"lamp": 0.9,
+		"line": "TOXIN",
+		"line_note": "it is reacting to you",
+		# **The rule.** Cuts heal, and they heal where the lamp is NOT - so the
+		# tunnel you are lighting stays open and the one behind you closes, and
+		# going dark to save power costs you the way home.
+		"heals": true,
+		"cavern_chance": 0.14,
+		"brittle": false,
+		"tint": [
+			Color(0.86, 0.72, 0.74), Color(0.80, 0.62, 0.68), Color(0.74, 0.50, 0.62),
+			Color(0.66, 0.38, 0.56), Color(0.56, 0.26, 0.48),
+		],
+		"air": [
+			Color(0.048, 0.036, 0.044), Color(0.050, 0.030, 0.044),
+			Color(0.056, 0.024, 0.046), Color(0.058, 0.018, 0.046),
+			Color(0.060, 0.012, 0.046),
+		],
+	},
 ]
 
 ## How wide an unsupported span has to be before a Rime ceiling gives. Three
@@ -192,6 +276,27 @@ static func lamp_mult(id: int) -> float:
 	return float(of(id).get("lamp", 1.0))
 
 
+## Does this world go for the battery instead of the hull? Only Verge.
+static func drains_power(id: int) -> bool:
+	return bool(of(id).get("drains_power", false))
+
+
+## Do its cuts close again? Only Quick.
+static func heals(id: int) -> bool:
+	return bool(of(id).get("heals", false))
+
+
+## What a fall costs here, as a multiple of everywhere else. Hollow is the world
+## you fly in, so its floor is the hazard the others do not have.
+static func fall_mult(id: int) -> float:
+	return float(of(id).get("fall", 1.0))
+
+
+## How much bigger its caverns are than the default.
+static func cavern_scale(id: int) -> float:
+	return float(of(id).get("cavern_scale", 1.0))
+
+
 static func is_brittle(id: int) -> bool:
 	return bool(of(id)["brittle"])
 
@@ -231,6 +336,12 @@ static func differences(a: int, b: int) -> int:
 	# Whether the hull loads from the first metre or past a known one changes how
 	# the whole descent is planned, so it is a channel too.
 	if bool(ca.get("crushes", false)) != bool(cb.get("crushes", false)):
+		n += 1
+	# Whether the pressure is on the hull or the battery, and whether the tunnel
+	# stays where you cut it, are both things a player reads in one descent.
+	if bool(ca.get("drains_power", false)) != bool(cb.get("drains_power", false)):
+		n += 1
+	if bool(ca.get("heals", false)) != bool(cb.get("heals", false)):
 		n += 1
 	if String(ca["line"]) != String(cb["line"]):
 		n += 1

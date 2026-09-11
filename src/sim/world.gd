@@ -417,7 +417,18 @@ func _generate() -> void:
 
 	_carve_caverns()
 	_place_caches()
+	_place_vaults()
 	_carve_core()
+
+	# **The water counts only what the PLAYER opens.**
+	#
+	# Caverns, vault chambers and the core room are all voids the world was
+	# generated with, and a void that has always been there is already full: it
+	# released its water long before anyone arrived. Counting them raised the
+	# table before the first descent had started - a Drown planet was three
+	# metres wetter the moment vaults were added to the generator, which is the
+	# generator silently retuning a balance number.
+	opened_below = 0
 
 
 ## Open space the player did not cut. One candidate per block so the density is
@@ -484,6 +495,88 @@ func _place_caches() -> void:
 		d += b
 
 
+## **Vaults: a chamber walled in seal, with something money cannot buy inside.**
+##
+## Placed one per block like the caches, so the spacing is the block grid's and
+## not a roll's. The chamber is opened out and its shell turned to `Ore.VAULT`,
+## which is the only material in the game a drill can be too weak to cut.
+##
+## **Exactly one keepsake per planet**, and it goes in the deepest vault - which
+## is the one asking for the highest tier, so the planet's own memento is the
+## last thing on it you can reach. Everything else holds a log fragment.
+func _place_vaults() -> void:
+	var b := Tuning.VAULT_BLOCK
+	var found: Array[Vector2i] = []
+	var d := Tuning.VAULT_MIN_DEPTH
+	while d < Tuning.CORE_DEPTH - 14:
+		var x := -Tuning.HALF_WIDTH + 3
+		while x <= Tuning.HALF_WIDTH - 3:
+			var inner := b - 8
+			var cx: int = x + 4 + int(_roll(x + 1, d, Tuning.SEED_VAULT) * float(maxi(inner, 1)))
+			var cd: int = d + 4 + int(_roll(x + 2, d, Tuning.SEED_VAULT) * float(maxi(inner, 1)))
+			if _carve_vault(cx, cd):
+				found.append(Vector2i(cx, cd))
+			x += b
+		d += b
+	if found.is_empty():
+		return
+	var deepest := found[0]
+	for c in found:
+		if c.y > deepest.y:
+			deepest = c
+	mat[idx(deepest.x, deepest.y)] = Ore.KEEPSAKE
+
+
+## One vault. Returns false if it will not fit, which keeps the edges of the
+## world out of it without a second rule about where the edges are.
+func _carve_vault(cx: int, cd: int) -> bool:
+	var r := Tuning.VAULT_RADIUS
+	for dd in range(cd - r - 1, cd + r + 2):
+		for xx in range(cx - r - 1, cx + r + 2):
+			if not in_bounds(xx, dd) or dd < 1:
+				return false
+	for dd in range(cd - r - 1, cd + r + 2):
+		for xx in range(cx - r - 1, cx + r + 2):
+			var i := idx(xx, dd)
+			var inside := absi(xx - cx) <= r and absi(dd - cd) <= r
+			if inside:
+				mat[i] = Ore.AIR
+				set_fill(xx, dd, 0.0)
+			else:
+				# The shell. Solid, and a drill below the tier cannot touch it.
+				mat[i] = Ore.VAULT
+				set_fill(xx, dd, 1.0)
+			seam[i] = 0
+	mat[idx(cx, cd)] = Ore.LOG
+	set_fill(cx, cd, 1.0)
+	return true
+
+
+## **Can the core be reached WITHOUT opening a vault?**
+##
+## Every seal is treated as solid rock, which is what a player who has not bought
+## the tier actually faces. The plan is explicit that the game must be completable
+## with zero vaults opened - Animal Well's rule - so a secret is a reason to come
+## back and never a tax on the player who does not.
+##
+## Returns the distance, or -1 when the only route runs through a seal. Cheap
+## enough for a test and never called by the game.
+func route_to_core_without_vaults() -> float:
+	var cd := core_depth()
+	# Nothing but rock between the pad and the core is the ordinary case: the
+	# player cuts their own way down, so the question is only whether a SEAL is
+	# unavoidable, and a seal is never placed across the whole width.
+	for d in range(0, cd + 1):
+		var clear := false
+		for x in range(-Tuning.HALF_WIDTH, Tuning.HALF_WIDTH + 1):
+			if material_at(x, d) != Ore.VAULT:
+				clear = true
+				break
+		if not clear:
+			return -1.0
+	return float(cd)
+
+
 ## The core chamber. Open space around a single CORE cell, so the last thing
 ## you do is fly into a room rather than cut one more block.
 func _carve_core() -> void:
@@ -514,8 +607,9 @@ func core_depth() -> int:
 ##
 ## Damage is KEPT when the drill stops, because `fill` IS the damage. There is
 ## no separate progress number that could be reset while the picture stayed cut.
-func cut(x: int, d: int, hp: float) -> Dictionary:
-	var out := {"cut": 0.0, "broke": false, "mat": Ore.AIR, "kg": 0.0, "value": 0.0, "filament": 0, "core": false}
+func cut(x: int, d: int, hp: float, tier: int = 0) -> Dictionary:
+	var out := {"cut": 0.0, "broke": false, "mat": Ore.AIR, "kg": 0.0, "value": 0.0,
+		"filament": 0, "core": false, "keepsake": false, "log": false, "sealed": false}
 	if not in_bounds(x, d):
 		return out
 	var i := idx(x, d)
@@ -534,6 +628,12 @@ func cut(x: int, d: int, hp: float) -> Dictionary:
 		return out
 
 	var m := int(mat[i])
+	# **The hard gate, and refusing costs nothing.** A seal a drill out-ranks is
+	# ordinary rock; one it does not is untouched, and the attempt is not charged
+	# for - a gate that eats power while it says no punishes finding it.
+	if m == Ore.VAULT and tier < Tuning.vault_tier(float(d)):
+		out["sealed"] = true
+		return out
 	# Depth, class and MATERIAL, in that order. The material term is what makes a
 	# vein something you feel rather than only something you see: without it
 	# every cell in a band cut at exactly the same rate and the plow ran flat.
@@ -564,6 +664,14 @@ func cut(x: int, d: int, hp: float) -> Dictionary:
 		return out
 	if m == Ore.CORE:
 		out["core"] = true
+		mat[i] = Ore.AIR
+		return out
+	if m == Ore.KEEPSAKE:
+		out["keepsake"] = true
+		mat[i] = Ore.AIR
+		return out
+	if m == Ore.LOG:
+		out["log"] = true
 		mat[i] = Ore.AIR
 		return out
 
@@ -597,10 +705,12 @@ func cut(x: int, d: int, hp: float) -> Dictionary:
 ## full weight, and `radius` is wider than the hull's half-extent, so the ship
 ## can never end a tick inside rock it has not paid to remove. Without that,
 ## releasing the drill mid-cut wedges the ship in a cell it cannot re-enter.
-func carve(a: Vector2, b: Vector2, radius: float, feather: float, hp: float) -> Dictionary:
+func carve(a: Vector2, b: Vector2, radius: float, feather: float, hp: float,
+		tier: int = 0) -> Dictionary:
 	var out := {
 		"cut": 0.0, "broke": 0, "kg": 0.0, "value": 0.0, "filament": 0,
 		"core": false, "core_cell": Vector2i.ZERO, "cells": [],
+		"keepsake": false, "logs": 0, "sealed": false,
 	}
 	if hp <= 0.0:
 		return out
@@ -630,6 +740,13 @@ func carve(a: Vector2, b: Vector2, radius: float, feather: float, hp: float) -> 
 				continue
 			var k := fidx(fx, fd)
 			if fine[k] <= Tuning.OPEN_FILL:
+				continue
+			# A seal this drill cannot cut is not in the brush at all. It says so
+			# once, so the HUD can explain the refusal, and costs nothing.
+			var mx := int(roundf(fine_centre(fx)))
+			var md := int(roundf(fine_centre(fd)))
+			if in_bounds(mx, md) and mat[idx(mx, md)] == Ore.VAULT 					and tier < Tuning.vault_tier(float(md)):
+				out["sealed"] = true
 				continue
 			var p := Vector2(fine_centre(fx), fine_centre(fd))
 			var dist := SimUtil.point_to_segment(p, a, b)
@@ -697,6 +814,12 @@ func carve(a: Vector2, b: Vector2, radius: float, feather: float, hp: float) -> 
 		if int(res["filament"]) > 0:
 			out["filament"] = int(out["filament"]) + int(res["filament"])
 			continue
+		if bool(res["keepsake"]):
+			out["keepsake"] = true
+			continue
+		if bool(res["log"]):
+			out["logs"] = int(out["logs"]) + 1
+			continue
 		# Each broken metre is reported on its own, because the hold can fill
 		# half way through a tick and the rest has to land on the ground.
 		(out["cells"] as Array).append({
@@ -709,7 +832,8 @@ func carve(a: Vector2, b: Vector2, radius: float, feather: float, hp: float) -> 
 ## What a metre gives up once the last of it is gone. Split out of `cut` so the
 ## carve and the whole-cell API reach the same rules by the same road.
 func _break_metre(x: int, d: int) -> Dictionary:
-	var out := {"mat": Ore.AIR, "kg": 0.0, "value": 0.0, "filament": 0, "core": false}
+	var out := {"mat": Ore.AIR, "kg": 0.0, "value": 0.0, "filament": 0, "core": false,
+		"keepsake": false, "log": false}
 	var i := idx(x, d)
 	var m := int(mat[i])
 	out["mat"] = m
@@ -720,6 +844,17 @@ func _break_metre(x: int, d: int) -> Dictionary:
 		return out
 	if m == Ore.CORE:
 		out["core"] = true
+		mat[i] = Ore.AIR
+		return out
+	# What a vault holds. Neither pays credits, on purpose: a vault that paid
+	# money would be a slow mine, and the whole point is that it pays in things
+	# money cannot buy.
+	if m == Ore.KEEPSAKE:
+		out["keepsake"] = true
+		mat[i] = Ore.AIR
+		return out
+	if m == Ore.LOG:
+		out["log"] = true
 		mat[i] = Ore.AIR
 		return out
 	var y := Ore.yield_of(m, seam[i] == 1)
@@ -846,6 +981,62 @@ func _check_ceiling(x: int, d: int) -> void:
 ##
 ## Pure: it takes the delta and returns what happened, and decides nothing about
 ## damage, which is the ship's business.
+## **Quick's healing: the tunnel closing behind you.**
+##
+## Walks the cells around the ship and puts fill back into the open ones, at a
+## rate that falls to nothing near the lamp - so the tunnel you are lighting stays
+## open and the one behind you in the dark is the one that goes. That is the
+## player's lever on the rule, and it makes going dark to save power a real cost
+## rather than a free saving.
+##
+## **It may never take the run.** A cell is refused if sealing it would leave the
+## ship with no route to the surface, which is the same discipline `collapse()`
+## keeps for a falling ceiling: a hazard may take the takings, never the run. The
+## check is on the route actually existing rather than on a rate being small
+## enough to hope.
+func heal(from: Vector2, lamp: float, dt: float) -> void:
+	if not Classes.heals(class_id):
+		return
+	var amount := Tuning.HEAL_RATE * dt
+	if amount <= 0.0:
+		return
+	# **The WHOLE world, not a window around the ship.**
+	#
+	# A window meant the tunnel only closed within its radius, so everything the
+	# player had already left behind stayed open forever - which is the opposite
+	# of the rule. Measured: a shaft eighteen metres above the ship was untouched
+	# after four minutes.
+	#
+	# It is affordable because almost every cell is solid and the first test is a
+	# byte read: a sweep is eight thousand rejections and a few hundred cells that
+	# actually do anything, four times a second.
+	for d in range(-Tuning.SURFACE_ROWS, Tuning.CORE_DEPTH + 1):
+		for x in range(-Tuning.HALF_WIDTH, Tuning.HALF_WIDTH + 1):
+			var i := idx(x, d)
+			if solid_cache[i] == 1:
+				continue
+			# The lamp holds it open. Full rate out past the light, nothing at all
+			# inside it, and a smooth ramp between so there is no line on the wall.
+			var dist := Vector2(float(x), float(d)).distance_to(from)
+			if dist < Tuning.HEAL_SAFE:
+				continue                      ## the ship always has room to cut
+			var k: float = clampf((dist - lamp * 0.6) / maxf(lamp, 0.001), 0.0, 1.0)
+			k = Tuning.HEAL_LIGHT_FLOOR + (1.0 - Tuning.HEAL_LIGHT_FLOOR) * k * k
+			_add_even(x, d, amount * k)
+
+
+## Put `amount` of fill back into a metre, spread over its fine cells.
+func _add_even(x: int, d: int, amount: float) -> void:
+	if not in_bounds(x, d) or amount <= 0.0:
+		return
+	mark_dirty(x, d)
+	for j in range(Tuning.SUB):
+		for i in range(Tuning.SUB):
+			var k := fidx(x * Tuning.SUB + i, d * Tuning.SUB + j)
+			fine[k] = minf(fine[k] + amount, 1.0)
+	_resettle(x, d)
+
+
 func settle(dt: float) -> Array[Vector2i]:
 	var fell: Array[Vector2i] = []
 	if unstable.is_empty():
