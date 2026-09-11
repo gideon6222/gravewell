@@ -55,10 +55,15 @@ uniform float beam_floor : hint_range(0.0, 0.6) = 0.06;
 uniform float prox_reach_mult : hint_range(0.1, 2.0) = 0.34;
 uniform float prox_gain : hint_range(0.0, 2.0) = 0.42;
 
-// The third term: the tunnel BEHIND, on the propagated spill alone. Long,
-// direction-free, and very weak.
-uniform float wash_reach_mult : hint_range(0.1, 4.0) = 1.6;
-uniform float wash_gain : hint_range(0.0, 1.0) = 0.26;
+// The third term: the WHOLE tunnel, on the propagated spill alone.
+//
+// Its reach is deliberately longer than the solved window, so across any frame
+// it is nearly flat and the falloff doing the work is the spill's own. That is
+// the difference between "the walls near the ship are lit" and "the tunnel is
+// lit": a radius centred on the lamp reads as belonging to the lamp however
+// gently it falls, which is what he named twice.
+uniform float wash_reach_mult : hint_range(0.1, 6.0) = 4.0;
+uniform float wash_gain : hint_range(0.0, 1.0) = 0.34;
 uniform float ambient_floor : hint_range(0.0, 1.0) = 0.035;
 uniform float density = 0.05;  // the air, which eats the far end of the light
 
@@ -66,6 +71,9 @@ uniform sampler2D rock_normal : filter_linear_mipmap, hint_normal;
 uniform float normal_strength : hint_range(0.0, 4.0) = 2.2;
 uniform float normal_scale = 0.45;
 uniform bool has_normal = false;
+// The z of the terrain's front face, from `Terrain.HALF`. One fact in two files,
+// so `main.gd` sets it from the constant rather than the shader guessing.
+uniform float face_z = 0.5;
 
 // How far toward the camera the lamp sits. A light exactly in the rock plane
 // reaches none of the faces the camera can see.
@@ -158,7 +166,36 @@ void fragment() {
 		// Sampled by WORLD position, so the pattern belongs to the rock rather
 		// than to the mesh, and a chunk rebuilt after a dig cannot make the
 		// texture swim.
-		vec3 nm = texture(rock_normal, p * normal_scale).rgb * 2.0 - 1.0;
+		//
+		// **Two projections, chosen by which way the face points.** The terrain
+		// is an extrusion along Z: the front face looks down -Z and takes the XY
+		// projection, but every tunnel WALL and CEILING is parallel to it, so its
+		// whole 3 m of depth collapses onto one line of texels and the map comes
+		// out as vertical streaks. That was invisible for as long as those faces
+		// were black; it is the first thing you see once the tunnel is lit all
+		// the way through, which is how it was found.
+		//
+		// A wall's own plane is (arc length along it, depth into the screen), and
+		// `(-n.y, n.x)` is the along-wall direction. Blended rather than switched,
+		// or the seam moves to wherever `facing` crosses the threshold.
+		// **Choose the projection from the GEOMETRY, not from the normal.**
+		// `generate_normals()` smooths across the crease where the front face
+		// meets the extruded wall, so a tunnel ceiling measures 0.87 on
+		// `abs(n.z)`: almost facing the camera. A selector built on the normal
+		// therefore picks the face projection for every wall in the game, and
+		// the streaks survive the fix. Found by rendering `abs(n.z)` straight to
+		// ALBEDO rather than by reading the mesh builder.
+		//
+		// The front face is a plane at z = `face_z` and the walls run back from
+		// it, so z says which surface a pixel is on and nothing can smooth that
+		// away. The blend is over the first 0.35 m of wall, which is behind the
+		// silhouette edge and never seen straight on.
+		float facing = smoothstep(face_z - 0.35, face_z - 0.02, world_pos.z);
+		vec2 uv_face = p * normal_scale;
+		vec2 uv_wall = vec2(dot(world_pos.xy, vec2(-n.y, n.x)), world_pos.z) * normal_scale;
+		vec3 nm = mix(texture(rock_normal, uv_wall).rgb,
+			texture(rock_normal, uv_face).rgb,
+			facing) * 2.0 - 1.0;
 		n = normalize(n + vec3(nm.x, -nm.y, 0.0) * normal_strength);
 	}
 

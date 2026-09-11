@@ -9,9 +9,21 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.9.1"
+const VERSION := "0.9.2"
 
 const RELEASES := [
+	{
+		"version": "0.9.2",
+		"date": "2026-09-10",
+		"title": "Headlights in thick air",
+		"notes": [
+			"The whole tunnel now holds a soft light, not just the part near you. A side passage is dim because it bends away, not because it is far off.",
+			"The lamp reads as headlights: a bright core that spreads as it goes, and it only shows because the air is thick enough to catch it.",
+			"Deeper air catches more of it, so the beam gets shorter, brighter and grittier as you go down.",
+			"Corners throw softer, wider shadows, and they no longer alias into a staircase at a distance.",
+			"Tunnel walls and ceilings show real rock instead of vertical streaking.",
+		],
+	},
 	{
 		"version": "0.9.1",
 		"date": "2026-09-10",

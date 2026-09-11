@@ -70,26 +70,60 @@ uniform float density = 0.05;
 // edge. These are dot products with the heading, so -1 is directly behind.
 uniform float cone_lo = -0.35;
 uniform float cone_hi = 0.75;
-uniform float beam_floor : hint_range(0.0, 0.5) = 0.05;
+// Barely above nothing. The air behind the ship is the AMBIENT term's job now,
+// so the beam does not need a floor holding it up; this only keeps the edge of
+// the cone from being a line.
+uniform float beam_floor : hint_range(0.0, 0.5) = 0.03;
 
-// The fill: the rest of the tunnel behind. LONGER than the beam and far
-// weaker, which is the opposite of what it was.
+// **The beam is the air scattering, so it scales with the air.** In clear air
+// you would see only what the lamp lands on: the visible shaft of a headlight
+// is entirely a fog effect. Tying its strength to the same density that drags
+// the ship and muffles the sound is what makes it read as headlights cutting
+// through something rather than as a cone painted on the screen.
+uniform float beam_scatter_lo : hint_range(0.0, 2.0) = 0.55;
+uniform float beam_scatter_gain : hint_range(0.0, 2.0) = 0.55;
+uniform float beam_scatter_max : hint_range(0.5, 4.0) = 2.2;
+// Overall beam brightness. Separate from `strength`, which scales the ambient
+// too: measured at 1.0 the beam saturated at 220 of 255 down the middle of a
+// shaft, and a blown-out core cannot show grit moving in it.
+uniform float beam_gain : hint_range(0.0, 2.0) = 0.5;
+
+// **The beam's profile ACROSS itself, which the cone cannot give it.**
 //
-// Measured on the junction frame with the first version of this: the air up the
-// shaft read 150 of 255 while the rock the beam was actually pointing at read
-// 103, and it ended in a cliff 140 px up. The brightest thing on screen was
-// behind the ship and it had an edge, which is the report word for word: "the
-// light seems to be coming from the back of the ship in a small beam."
+// A cone is an angular test from the lamp. In a shaft one cell wide the whole
+// shaft sits well inside any usable cone, so the cone is constant across it and
+// the beam comes out a flat slab with a razor edge at each wall: an object in
+// the tunnel rather than light in the air. A headlight has an intensity profile
+// across the beam, brightest on the axis, and it WIDENS as it goes, which is
+// what "dispersed" means.
 //
-// So the fill is not a second beam with a shorter barrel. It is a long, dim,
-// edgeless presence that says the way home is still open.
-uniform float fill_reach_mult = 1.05;
-uniform float fill_gain : hint_range(0.0, 1.0) = 0.07;
+// `core_width` is the half-width at the lamp in metres and `core_spread` is how
+// many metres wider it gets per metre travelled.
+uniform float core_width : hint_range(0.05, 3.0) = 0.35;
+uniform float core_spread : hint_range(0.0, 1.5) = 0.30;
+uniform float core_edge : hint_range(0.0, 1.0) = 0.22;
+
+// **The ambient: the whole tunnel, lit, with no falloff of its own.**
+//
+// This replaced a "fill" term that was a second pool around the ship on a
+// second radius, and his reply to that was: "Instead of thick air, this looks
+// more similar to a beam coming from the ship. Can you make it so that the
+// there is a soft dispersed light throughout the whole tunnel."
+//
+// A distance falloff measured from the LAMP is the thing that makes light look
+// like it belongs to the ship. `flood` already carries the right quantity: how
+// much lamp light reached this open cell ALONG THE PASSAGE, which is 1 down an
+// open shaft however long it is and falls only where the route bends. Used raw
+// it is light present in the tunnel, not light thrown from a lamp.
+uniform float ambient_gain : hint_range(0.0, 1.0) = 0.045;
+// How far a corner's shadow can darken the ambient. Never to nothing: air in a
+// shadow is still air, and a black wedge in fog is a hole cut in the fog.
+uniform float ambient_shadow : hint_range(0.0, 1.0) = 0.35;
 
 // How much thicker the air looks per unit of density, and how strongly the
 // motes drifting in it read.
 uniform float thick_gain = 0.32;
-uniform float mote_gain : hint_range(0.0, 1.0) = 0.35;
+uniform float mote_gain : hint_range(0.0, 1.0) = 0.5;
 
 // **Term isolation, kept rather than hacked in twice.** 0 is the game; 1..5
 // render one term on its own so a fault can be SEEN instead of argued about.
@@ -142,24 +176,48 @@ void fragment() {
 	float occ = texture(fan, vec2(fan_u, 0.5)).r * fan_reach;
 	// A soft edge rather than a step: a hard binary shadow on a 1080-wide phone
 	// aliases into a staircase along every wedge.
-	float shadow = 1.0 - smoothstep(occ - 0.30, occ + 0.30, dist);
+	// The soft edge WIDENS with distance. A fixed 0.30 m band is a crisp line at
+	// ten metres, where the fan's own angular resolution is coarser than the
+	// line it is drawing, so the wedge aliases into a staircase; and a crisp
+	// wedge in fog is a cut rather than a shadow.
+	float edge = 0.25 + dist * 0.12;
+	float shadow = 1.0 - smoothstep(occ - edge, occ + edge, dist);
 
-	// ── BEAM: dispersed, forward ──────────────────────────────────────────
+	// ── AMBIENT: the whole tunnel, everywhere the light got to ────────────
+	// No distance term at all. `flood` is the distance term, and it measures the
+	// right distance: along the passage rather than through the rock.
+	float ambient = flood * ambient_gain * mix(ambient_shadow, 1.0, shadow);
+
+	// ── BEAM: the headlights ──────────────────────────────────────────────
 	// Squared, so the middle of the cone is genuinely brighter than its edge and
 	// the beam has a SHAPE rather than being a lit region with a boundary.
 	float cone = smoothstep(cone_lo, cone_hi, forward);
 	cone *= cone;
 	float beam_reach = lamp_reach / (1.0 + density * 0.35);
+	// CUBED, not squared. A beam that holds its brightness to the end of its
+	// reach and then stops has an end, and an end is what makes it read as an
+	// object rather than as light dissolving into air. Measured: squared, the
+	// beam was still at 148 of 255 where it left the frame.
 	float beam_fall = clamp(1.0 - dist / max(beam_reach, 0.001), 0.0, 1.0);
-	beam_fall *= beam_fall;
-	float beam = mix(beam_floor, 1.0, cone) * beam_fall;
+	beam_fall = beam_fall * beam_fall * beam_fall;
+	// Perpendicular distance from the beam's axis, and a Gaussian across it whose
+	// width grows with how far down the beam the pixel is.
+	float along = max(dot(away, lamp_dir), 0.0);
+	float off = length(away - lamp_dir * along);
+	float w = core_width + core_spread * along;
+	float core = exp(-(off * off) / max(2.0 * w * w, 1.0e-4));
 
-	// ── FILL: the rest of the tunnel behind, on its OWN falloff ───────────
-	float fill_reach = beam_reach * fill_reach_mult;
-	float fill = clamp(1.0 - dist / max(fill_reach, 0.001), 0.0, 1.0);
-	fill = fill * fill * fill_gain;
+	float beam = mix(beam_floor, 1.0, cone) * mix(core_edge, 1.0, core)
+		* beam_fall * flood * shadow * beam_gain;
+	// It exists because the air does.
+	beam *= min(beam_scatter_lo + density * beam_scatter_gain, beam_scatter_max);
 
-	float lit = max(beam, fill) * flood * shadow;
+	// **Added, not `max`ed.** Fog scatters the ambient and the beam at the same
+	// point in the same air, and what you see is the sum; taking the larger of
+	// the two puts a visible seam along the cone's edge where one term overtakes
+	// the other. `max()` is still the rule for two terms that are the SAME light
+	// counted twice, which is what the rock's three are.
+	float lit = ambient + beam;
 
 	// ── THICK: the air itself ─────────────────────────────────────────────
 	// The same density that thickens the fog, shortens the lamp and drags the
@@ -172,7 +230,9 @@ void fragment() {
 	// The motes scale with the SAME density, so the surface air is nearly clear
 	// and the deep is soup. A constant grain everywhere is dirt on the lens; a
 	// grain that arrives as you descend is the air getting thick.
-	float grit = mote_gain * clamp(0.30 + density * 0.55, 0.30, 1.6);
+	// Stronger INSIDE the cone, because that is where a headlight shows you what
+	// is floating in front of it. Outside, the same air is a flat glow.
+	float grit = mote_gain * clamp(0.30 + density * 0.55, 0.30, 1.6) * mix(0.6, 1.5, cone);
 	lit *= thick * (1.0 - grit * 0.5 + grit * motes * 1.6);
 
 	// A very SHORT ramp, only enough that the quad cannot wash the hull at a
@@ -182,7 +242,7 @@ void fragment() {
 	// Each branch replaces the composite with ONE term, unscaled by the others,
 	// which is the whole point: a term that is wrong is usually wrong flat.
 	if (debug_term == 1) { lit = beam; }
-	else if (debug_term == 2) { lit = fill; }
+	else if (debug_term == 2) { lit = ambient; }
 	else if (debug_term == 3) { lit = flood; }
 	else if (debug_term == 4) { lit = shadow * flood; }
 	else if (debug_term == 5) { lit = (thick - 1.0) * 0.5; }

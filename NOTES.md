@@ -593,3 +593,88 @@ the one thing the soft half must not do.
     `scripts/shot_light.gd` cuts a real junction and flies past it, and stage 4
     climbs clear and turns back down so there is open shaft in both directions at
     once. `build/junction.png`, `build/beam.png`, `build/deep.png`.
+
+## 0.9.2: headlights in thick air (2026-09-10)
+
+His note on 0.9.1, verbatim: *"Instead of thick air, this looks more similar to a
+beam coming from the ship. Can you make it so that the there is a soft dispersed
+light throughout the whole tunnel and the beam coming from the ship looks like
+it's headlights cutting through the thick air? In front of the ship should be
+brighter than behind and branching paths should cast shadows as you pass them."*
+
+The forward/behind ratio and the corner shadows he restated unchanged, so those
+were right. What was wrong was named twice in one sentence: light present in the
+WHOLE tunnel, and a beam that reads as scattering.
+
+### 14. A lamp-centred radius always reads as light belonging to the ship
+
+0.9.1 already had a weak, long, direction-free term for the tunnel behind. It
+still read as a pool that follows you, because its falloff was a radius measured
+from the lamp. **A disc centred on the light source is a disc however gently it
+falls and however far it reaches.**
+
+The flood is the right quantity and it was already solved: `exp(-att * (path -
+octile))` is exactly 1 down an open passage however long, and falls only where
+the route bends. The AMBIENT term is that value raw, with no distance term of
+its own, so the tunnel lights to the edge of the solved window and a side branch
+is dim because it bends away rather than because it is far off. Same move on the
+rock: `wash_reach_mult` is 4.0, longer than the solved window, so across a frame
+it is flat and the only falloff is the spill's own.
+
+### 15. A beam in a one-cell shaft has no shape unless it has a profile ACROSS itself
+
+An angular cone is constant across something that narrow, so the beam came out a
+flat slab with a razor edge at each wall: an object in the tunnel. A Gaussian on
+the perpendicular distance from the axis, whose width grows with how far down the
+beam a pixel is, is what "dispersed" actually means.
+
+| Change | Why, measured |
+|---|---|
+| off-axis Gaussian, `w = 0.35 + 0.30 * along` | the cone cannot give a narrow shaft a core |
+| beam scales with `density` | in clear air you see only what the lamp lands on: a visible shaft is entirely a fog effect |
+| falloff CUBED, not squared | squared, the beam was still 148 of 255 where it left the frame, so it had an end |
+| shadow edge `0.25 + dist * 0.12` | a fixed 0.30 m band is drawn crisper than the fan's own angular resolution and aliases |
+| ambient + beam, not `max()` | fog scatters both at the same point and you see the sum; `max()` leaves a seam along the cone edge |
+
+`max()` is still the rule on the rock, where the three terms are the same light
+counted three ways.
+
+### 16. Lighting the tunnel published a texture bug that had shipped for nine versions
+
+The normal map is projected in world XY, which is exactly parallel to every wall
+of a Z-extruded mesh, so a wall's whole 3 m of depth collapsed onto one line of
+texels and came out as vertical streaks. Invisible while those faces were black.
+
+**Selecting the projection by `abs(normal.z)` does not work.** `generate_normals()`
+smooths across the crease where the front face meets the wall, so a tunnel ceiling
+measures 0.87 there and every wall in the game takes the face projection anyway.
+Measured by rendering `abs(n.z)` straight to ALBEDO. The selector is the geometry
+instead: the front face is a plane at `Terrain.HALF`, passed in as `face_z` and
+asserted in the smoke run.
+
+Expect this generally: **any change that lifts the black floor also publishes
+every defect the darkness was covering.**
+
+### 17. The gate had been blind to every Godot error since the template was written
+
+`check.ps1` ran `& $godot @a *> $log` and counted `'^(SCRIPT )?ERROR'`. PowerShell
+sends a native command's stderr through its error channel, so every line arrives
+as an ErrorRecord rendered `Godot...exe : SCRIPT ERROR: ...` in UTF-16. The anchor
+could never match. `errs` was structurally always 0.
+
+It surfaced because a `int(null)` on an unset shader uniform threw inside the
+smoke check, skipped every assertion after the throw, and the gate printed
+`smoke ok ... errors 0`. Two regression tests written minutes earlier were among
+the skipped. The assertion count is the tell: 140 before, 142 after.
+
+Fixed by unwrapping the ErrorRecords with `ToString()` and writing the log UTF-8,
+in this repo and in `C:\dev\godot-template`. Filed to `inbox/`.
+
+### Still open, not changed
+
+At 90 m the frame carries large soft brown washes over big regions of rock. Probed
+them rather than guessing: they are ORE GLOW, which is exempt from the light model
+on purpose so a rich seam reads through the dark, and the deep bands are dense with
+high-glow material (`COLOR.a` measured 0.67 in one of them). It is doing what it
+was written to do; whether seams should read tighter than that is his call, not a
+lighting fix to make under a lighting request.

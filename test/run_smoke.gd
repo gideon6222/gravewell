@@ -156,6 +156,13 @@ func _check_the_lamp_is_one_light(main) -> void:
 	_t.eq(int(haze.get_shader_parameter("debug_term")), 0,
 		"the air is rendering a debug term instead of the game")
 
+	# The rock picks its normal-map projection from where the front face sits in
+	# z, because the mesh's smoothed normals cannot tell a wall from a face. That
+	# plane is `Terrain.HALF` and the shader has to be handed the same number:
+	# get it wrong and every tunnel wall goes back to vertical streaks.
+	_t.approx(float(rock.get_shader_parameter("face_z")), Terrain.HALF, 1e-4,
+		"the rock shader thinks the front face is somewhere it is not")
+
 
 ## **The back button unwinds one layer per press and never quits.** Both halves
 ## in the same commit: the setting alone is a dead system button.

@@ -197,6 +197,13 @@ func _build_world() -> void:
 	_rock_mat.set_shader_parameter("field", _field.texture)
 	_rock_mat.set_shader_parameter("field_side", float(Light.SIDE))
 	_rock_mat.set_shader_parameter("field_radius", float(Light.R))
+	# Where the terrain's front face sits in z. Set UNCONDITIONALLY, because it
+	# is a fact about the mesh and not about the normal map: while it lived
+	# inside the `if rock_n != null` branch the assertion guarding it could not
+	# fail, since the shader's own default happened to equal `Terrain.HALF` and
+	# the branch does not run without the texture. A test that cannot fail is
+	# untested, not safe.
+	_rock_mat.set_shader_parameter("face_z", Terrain.HALF)
 	# The single highest-value import in the game. "Cartoonie" from him means
 	# under-lit and under-textured, never the model style, and a normal map on
 	# the largest surface plus a real light with falloff does more than any
@@ -220,6 +227,11 @@ func _build_world() -> void:
 	_haze_mat.set_shader_parameter("fan", _field.fan_texture)
 	_haze_mat.set_shader_parameter("field_side", float(Light.SIDE))
 	_haze_mat.set_shader_parameter("field_radius", float(Light.R))
+	# The term-isolation switch, set EXPLICITLY even though its default is
+	# already 0. An unset uniform reads back as null, and `int(null)` throws:
+	# that threw inside the smoke check and silently skipped every assertion
+	# after it, which the gate then reported as "all passing".
+	_haze_mat.set_shader_parameter("debug_term", 0)
 
 	var quad := QuadMesh.new()
 	quad.size = Vector2(float(HALF_W) * 2.4, float(HALF_D) * 2.4)
