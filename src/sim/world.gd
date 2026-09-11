@@ -39,8 +39,57 @@ var class_id: int = 0
 var rows: int = 0
 
 var mat: PackedByteArray = PackedByteArray()
-var fill: PackedFloat32Array = PackedFloat32Array()
 var seam: PackedByteArray = PackedByteArray()
+
+## **The fill field, at `Tuning.SUB` cells per metre.**
+##
+## This is the truth about what is left in the ground, and it is the ONLY array
+## that is finer than a metre. Material, seams, hardness, yields and the whole
+## light solve stay on the metre, because none of them is a shape: an ore vein
+## is a metre-scale fact and a lit tunnel is a metre-scale fact. What had to get
+## finer is the SURFACE, because a marching-squares contour cannot draw anything
+## smaller than its own lattice, and the ship is 0.76 m.
+##
+## Everything coarse is DERIVED from this, never stored beside it - `fill_at` is
+## the mean of a metre's fine cells and `is_open` is "every one of them is gone".
+## One direction, fine to coarse, so the two can never disagree the way two
+## thresholds for "gone" have twice before in this file.
+var fine: PackedFloat32Array = PackedFloat32Array()
+
+## **Which metres have changed shape since the renderer last looked.**
+##
+## The mesh is chunked now, so "rebuild the window because the ship crossed a
+## cell" is the wrong question: the ship crossing a cell changes nothing, and the
+## drill changes a couple of metres a tick. The simulation is the only thing that
+## knows which, so it says so, as a rectangle rather than a list. Kept here
+## rather than in the renderer so a headless run does the same bookkeeping and a
+## test can assert on it.
+var dirty_lo := Vector2i(0, 0)
+var dirty_hi := Vector2i(-1, -1)
+
+## **"Is this metre completely gone", cached, one byte each.**
+##
+## A derived cache and never a second opinion: it is recomputed from the fine
+## field by `_resettle` every time that metre's fine cells change, and nothing
+## else may write it. It exists because the light flood asks `is_open` about
+## 2,401 cells times eight neighbours on every solve, and answering that by
+## looping sixteen fine cells turned a 20 ms flood into something far worse.
+var open_cache: PackedByteArray = PackedByteArray()
+
+## And its opposite: this metre is entirely untouched rock. The mesh builder asks
+## it for every metre in a chunk to decide whether to draw one quad or contour
+## sixteen cells, and answering that by looping the fine cells was most of the
+## rebuild's cost. Same rule: derived in `_resettle`, written nowhere else.
+var solid_cache: PackedByteArray = PackedByteArray()
+
+## And how much of the metre is left, which is what the contour and the vertex
+## colour read. `_mean_fill` loops sixteen fine cells; the mesh builder asks it
+## four times per vertex and there are eighteen thousand vertices in a window, so
+## leaving it uncached measured 50 ms a tick. Same rule as the other two: written
+## only by `_resettle`.
+var mean_cache: PackedFloat32Array = PackedFloat32Array()
+
+const FWIDTH := WIDTH * Tuning.SUB
 
 ## Where the core chamber sits. Offset per planet so a straight dive down the
 ## centre is a real route rather than the only one, and so "the core is
@@ -90,10 +139,109 @@ func fill_at(x: int, d: int) -> float:
 		return 0.0
 	if not in_bounds(x, d):
 		return 1.0
-	return fill[idx(x, d)]
+	return mean_cache[idx(x, d)]
 
 
-## **Fill at a POINT, bilinear on the cell-centre lattice.**
+# ── the fine field, and the coarse answers derived from it ────────────────
+
+## Address a FINE cell. Fine coordinates are metre coordinates times `SUB`, so
+## fine cell (0, 0) is the top-left quarter of metre cell (0, 0).
+func fidx(fx: int, fd: int) -> int:
+	return (fd + Tuning.SURFACE_ROWS * Tuning.SUB) * FWIDTH + (fx + Tuning.HALF_WIDTH * Tuning.SUB)
+
+
+## **Where a fine cell's centre is, in metres.**
+##
+## Metre cell `x` is centred on `x` and spans `x - 0.5` to `x + 0.5`, so its
+## fine cells run from `x - 0.5` upward and NOT from `x`. Getting this wrong is
+## a half-metre offset between the two lattices, which does not look like an
+## offset: it looks like the drill cutting a lopsided hole that never finishes,
+## because the ship is riding the left edge of the block it is clearing. The
+## fine profile of a carved metre read `0.02 0.16 0.57 1.00` across, and no metre
+## in the game ever became passable.
+static func fine_centre(n: int) -> float:
+	return (float(n) + 0.5) / float(Tuning.SUB) - 0.5
+
+
+## And the inverse: the fractional fine index of a point in metres.
+static func fine_index(m: float) -> float:
+	return (m + 0.5) * float(Tuning.SUB) - 0.5
+
+
+func fine_in_bounds(fx: int, fd: int) -> bool:
+	return fx >= -Tuning.HALF_WIDTH * Tuning.SUB and fx < (Tuning.HALF_WIDTH + 1) * Tuning.SUB 		and fd >= -Tuning.SURFACE_ROWS * Tuning.SUB and fd < (Tuning.CORE_DEPTH + 1) * Tuning.SUB
+
+
+## Out of bounds is SOLID at the sides and the bottom, OPEN above the surface,
+## exactly as the coarse version is.
+func fine_at(fx: int, fd: int) -> float:
+	if fd < -Tuning.SURFACE_ROWS * Tuning.SUB:
+		return 0.0
+	if not fine_in_bounds(fx, fd):
+		return 1.0
+	return fine[fidx(fx, fd)]
+
+
+## Set a whole METRE to one value. Generation, collapses and falling ceilings all
+## work in metres, and so do the tests.
+func set_fill(x: int, d: int, v: float) -> void:
+	if not in_bounds(x, d):
+		return
+	mark_dirty(x, d)
+	for j in range(Tuning.SUB):
+		for i in range(Tuning.SUB):
+			fine[fidx(x * Tuning.SUB + i, d * Tuning.SUB + j)] = v
+	_resettle(x, d)
+
+
+## Note that a metre's SHAPE changed, so the chunk drawing it gets rebuilt.
+func mark_dirty(x: int, d: int) -> void:
+	if dirty_hi.x < dirty_lo.x:
+		dirty_lo = Vector2i(x, d)
+		dirty_hi = Vector2i(x, d)
+		return
+	dirty_lo = Vector2i(mini(dirty_lo.x, x), mini(dirty_lo.y, d))
+	dirty_hi = Vector2i(maxi(dirty_hi.x, x), maxi(dirty_hi.y, d))
+
+
+## Read the dirty rectangle and clear it. Empty when `hi` is behind `lo`.
+func take_dirty() -> Array[Vector2i]:
+	var out: Array[Vector2i] = []
+	if dirty_hi.x >= dirty_lo.x:
+		out.append(dirty_lo)
+		out.append(dirty_hi)
+	dirty_lo = Vector2i(0, 0)
+	dirty_hi = Vector2i(-1, -1)
+	return out
+
+
+## Take `amount` of fill out of a metre, spread evenly over its fine cells.
+func _take_even(x: int, d: int, amount: float) -> void:
+	if not in_bounds(x, d) or amount <= 0.0:
+		return
+	mark_dirty(x, d)
+	for j in range(Tuning.SUB):
+		for i in range(Tuning.SUB):
+			var k := fidx(x * Tuning.SUB + i, d * Tuning.SUB + j)
+			fine[k] = maxf(fine[k] - amount, 0.0)
+	_resettle(x, d)
+
+
+## How much of a metre is left, as the mean of its fine cells. This is what the
+## contour used to read directly and what everything coarse still reads.
+func _mean_fill(x: int, d: int) -> float:
+	if d < -Tuning.SURFACE_ROWS:
+		return 0.0
+	if not in_bounds(x, d):
+		return 1.0
+	var total := 0.0
+	for j in range(Tuning.SUB):
+		for i in range(Tuning.SUB):
+			total += fine[fidx(x * Tuning.SUB + i, d * Tuning.SUB + j)]
+	return total / float(Tuning.SUB * Tuning.SUB)
+
+
+## **Fill at a POINT, bilinear on the FINE lattice.**
 ##
 ## The same lattice and the same interpolation the contour is built from, so the
 ## number this returns is the one the player is looking at. It exists because a
@@ -101,22 +249,71 @@ func fill_at(x: int, d: int) -> float:
 ## has half cut needs to know whether it is getting out, which is a question that
 ## has to have a different answer half a cell later.
 func fill_between(p: Vector2) -> float:
-	var x0 := int(floor(p.x))
-	var d0 := int(floor(p.y))
-	var tx := p.x - float(x0)
-	var td := p.y - float(d0)
-	var a := fill_at(x0, d0)
-	var b := fill_at(x0 + 1, d0)
-	var c := fill_at(x0, d0 + 1)
-	var e := fill_at(x0 + 1, d0 + 1)
+	var fx := fine_index(p.x)
+	var fd := fine_index(p.y)
+	var x0 := int(floor(fx))
+	var d0 := int(floor(fd))
+	var tx := fx - float(x0)
+	var td := fd - float(d0)
+	var a := fine_at(x0, d0)
+	var b := fine_at(x0 + 1, d0)
+	var c := fine_at(x0, d0 + 1)
+	var e := fine_at(x0 + 1, d0 + 1)
 	return lerp(lerp(a, b, tx), lerp(c, e, tx), td)
 
 
 ## The ONE definition of passable, shared by collision, the flood and the drill.
 ## A cell is passable only when it is fully cut: a half-cut cell you can fly
 ## through is a cell that never breaks and never pays.
+## **Has this metre been worked out?** Not "can the ship fit", which is
+## `Flight._blocked` asking the fine field directly. This one decides whether
+## light travels through, whether the ore has been paid for and whether the route
+## home runs here, all of which are metre-scale facts. Derived from the fine
+## field through `Tuning.METRE_OPEN`, one direction, so it cannot drift from what
+## the player is looking at.
 func is_open(x: int, d: int) -> bool:
-	return fill_at(x, d) <= Tuning.OPEN_FILL
+	if d < -Tuning.SURFACE_ROWS:
+		return true
+	if not in_bounds(x, d):
+		return false
+	return open_cache[idx(x, d)] == 1
+
+
+## Recompute one metre's cached answer from the fine cells under it. The ONLY
+## writer of `open_cache`, so the cache cannot say something the field does not.
+func _resettle(x: int, d: int) -> void:
+	var mean := _mean_fill(x, d)
+	var i := idx(x, d)
+	mean_cache[i] = mean
+	open_cache[i] = 1 if mean <= Tuning.METRE_OPEN else 0
+	solid_cache[i] = 1 if mean >= 1.0 - 1.0e-6 else 0
+
+
+## Is this metre entirely untouched? Out of bounds counts as solid at the sides
+## and the bottom and as open above the surface, exactly as everything else here.
+func is_solid(x: int, d: int) -> bool:
+	if d < -Tuning.SURFACE_ROWS:
+		return false
+	if not in_bounds(x, d):
+		return true
+	return solid_cache[idx(x, d)] == 1
+
+
+## **Can the ship be here? Answered with the isovalue the SURFACE is drawn at.**
+##
+## Deliberately `CONTOUR_ISO` and not `OPEN_FILL`. The contour puts the rock face
+## where the fill crosses 0.5, so a fine cell below that is on the air side of the
+## line the player is looking at, and anything else means the ship is stopped by
+## something that is not drawn. It was `OPEN_FILL` for one round and a ship
+## carrying the core sat still against two quarter-metre wisps holding two per
+## cent of a metre between them, with clear air on the screen all around it.
+##
+## This is not a third threshold for one fact. It is the picture and the
+## collision finally being the SAME fact - which is the thing this file has got
+## wrong twice - while `METRE_OPEN` answers the different, metre-scale question
+## of whether a metre has been worked out.
+func is_clear(fx: int, fd: int) -> bool:
+	return fine_at(fx, fd) < Tuning.CONTOUR_ISO
 
 
 func is_seam(x: int, d: int) -> bool:
@@ -141,8 +338,11 @@ func _roll(x: int, d: int, offset: int) -> float:
 func _generate() -> void:
 	var n := rows * WIDTH
 	mat.resize(n)
-	fill.resize(n)
 	seam.resize(n)
+	fine.resize(n * Tuning.SUB * Tuning.SUB)
+	open_cache.resize(n)
+	solid_cache.resize(n)
+	mean_cache.resize(n)
 
 	# 1. Rock, ore and seams. Ore rolls on SEED_ORE and the seam texture rolls
 	#    on SEED_SEAM, and the seam roll is read once and used for BOTH the
@@ -152,11 +352,11 @@ func _generate() -> void:
 			var i := idx(x, d)
 			if d < 0:
 				mat[i] = Ore.AIR
-				fill[i] = 0.0
+				set_fill(x, d, 0.0)
 				seam[i] = 0
 				continue
 			mat[i] = Ore.roll(float(d), _roll(x, d, Tuning.SEED_ORE))
-			fill[i] = 1.0
+			set_fill(x, d, 1.0)
 			seam[i] = 1 if _roll(x, d, Tuning.SEED_SEAM) < Tuning.SEAM_CHANCE else 0
 
 	_carve_caverns()
@@ -201,7 +401,7 @@ func _carve_blob(cx: int, cd: int, radius: float) -> void:
 			if nx * nx + nd * nd <= 1.0:
 				var i := idx(x, d)
 				mat[i] = Ore.AIR
-				fill[i] = 0.0
+				set_fill(x, d, 0.0)
 				seam[i] = 0
 
 
@@ -240,11 +440,10 @@ func _carve_core() -> void:
 				continue
 			var i := idx(x, d)
 			mat[i] = Ore.AIR
-			fill[i] = 0.0
+			set_fill(x, d, 0.0)
 			seam[i] = 0
-	var ci := idx(core_x, cd)
-	mat[ci] = Ore.CORE
-	fill[ci] = 1.0
+	mat[idx(core_x, cd)] = Ore.CORE
+	set_fill(core_x, cd, 1.0)
 
 
 func core_depth() -> int:
@@ -275,7 +474,7 @@ func cut(x: int, d: int, hp: float) -> Dictionary:
 	#
 	# This is the second time two thresholds for "gone" have disagreed in this
 	# file. There is one.
-	if fill[i] <= Tuning.OPEN_FILL:
+	if is_open(x, d):
 		return out
 
 	var m := int(mat[i])
@@ -288,14 +487,18 @@ func cut(x: int, d: int, hp: float) -> Dictionary:
 	if m == Ore.CORE:
 		hardness *= 6.0
 
-	var removed: float = minf(hp / hardness, fill[i])
-	fill[i] -= removed
+	# Spread evenly across the metre's fine cells: `cut` is the whole-cell API,
+	# used by the tests and by anything that wants a metre gone rather than a
+	# shape carved. `carve` is what the drill uses, and it works fine cell by
+	# fine cell so the surface can move in quarter metres.
+	var removed: float = minf(hp / hardness, _mean_fill(x, d))
+	_take_even(x, d, removed)
 	out["cut"] = removed * hardness      ## hit points actually spent, for the power charge
 
-	if fill[i] > Tuning.OPEN_FILL:
+	if not is_open(x, d):
 		return out
 
-	fill[i] = 0.0
+	set_fill(x, d, 0.0)
 	out["broke"] = true
 	out["mat"] = m
 	_check_ceiling(x, d)
@@ -345,39 +548,91 @@ func carve(a: Vector2, b: Vector2, radius: float, feather: float, hp: float) -> 
 	}
 	if hp <= 0.0:
 		return out
+	var sub := float(Tuning.SUB)
 	var reach := radius + feather
+
+	# **Gathered in FINE cells.** This is the whole change: the brush used to
+	# take whole metres, so the drawn wall could only ever recede in steps close
+	# to the ship's own width however smoothly the float underneath it moved.
+	#
 	# The weights are normalised, so a wide brush does not dig faster than a
-	# narrow one: the tick's hit points are SHARED between the cells under it.
-	# Without this the dig rate would depend on the brush's area, and the brush
-	# is a picture decision while the rate is a balance decision.
-	var cells: Array[Vector2i] = []
-	var weights: Array[float] = []
+	# narrow one: the tick's hit points are SHARED between everything under it.
+	# Without that the dig rate would depend on the brush's area, and the brush is
+	# a picture decision while the rate is a balance decision.
+	var cells := PackedInt32Array()
+	var weights := PackedFloat32Array()
 	var total := 0.0
 	var lo := Vector2(minf(a.x, b.x), minf(a.y, b.y)) - Vector2(reach, reach)
 	var hi := Vector2(maxf(a.x, b.x), maxf(a.y, b.y)) + Vector2(reach, reach)
-	for d in range(int(floor(lo.y + 0.5)), int(floor(hi.y + 0.5)) + 1):
-		for x in range(int(floor(lo.x + 0.5)), int(floor(hi.x + 0.5)) + 1):
-			if not in_bounds(x, d) or fill[idx(x, d)] <= Tuning.OPEN_FILL:
+	var fd0 := int(floor(fine_index(lo.y)))
+	var fd1 := int(ceil(fine_index(hi.y)))
+	var fx0 := int(floor(fine_index(lo.x)))
+	var fx1 := int(ceil(fine_index(hi.x)))
+	for fd in range(fd0, fd1 + 1):
+		for fx in range(fx0, fx1 + 1):
+			if not fine_in_bounds(fx, fd):
 				continue
-			var dist := SimUtil.point_to_segment(Vector2(float(x), float(d)), a, b)
+			var k := fidx(fx, fd)
+			if fine[k] <= Tuning.OPEN_FILL:
+				continue
+			var p := Vector2(fine_centre(fx), fine_centre(fd))
+			var dist := SimUtil.point_to_segment(p, a, b)
 			if dist >= reach:
 				continue
 			var w := 1.0 if dist <= radius else 1.0 - (dist - radius) / maxf(feather, 0.001)
 			w = w * w * (3.0 - 2.0 * w)          ## smoothstep, so the rim is soft
-			cells.append(Vector2i(x, d))
+			cells.append(k)
 			weights.append(w)
 			total += w
 	if total <= 0.0:
 		return out
 
+	# **The hardness of a fine cell is its METRE's hardness.** Material, seam and
+	# depth are all metre-scale facts; only the shape got finer. One hit point
+	# still buys the same volume it always did, so the plow's speed, the power
+	# bill and the yields are all untouched by this.
+	var broke_metres: Array[Vector2i] = []
+	var touched: Array[Vector2i] = []
 	for i in range(cells.size()):
-		var c: Vector2i = cells[i]
-		var res := cut(c.x, c.y, hp * weights[i] / total)
-		if float(res["cut"]) <= 0.0:
+		var k: int = cells[i]
+		var fx := k % FWIDTH - Tuning.HALF_WIDTH * Tuning.SUB
+		var fd := k / FWIDTH - Tuning.SURFACE_ROWS * Tuning.SUB
+		var x := int(roundf(fine_centre(fx)))
+		var d := int(roundf(fine_centre(fd)))
+		var m := int(mat[idx(x, d)])
+		var hardness := Tuning.hardness_at(float(d)) * Classes.hardness_mult(class_id) 			* Ore.hardness_of(m, seam[idx(x, d)] == 1)
+		if m == Ore.CORE:
+			hardness *= 6.0
+		# A fine cell is 1/SUB² of a metre, so removing all of it costs that
+		# fraction of the metre's hit points.
+		var share: float = hp * weights[i] / total
+		var removed: float = minf(share / hardness * float(Tuning.SUB * Tuning.SUB), fine[k])
+		if removed <= 0.0:
 			continue
-		out["cut"] = float(out["cut"]) + float(res["cut"])
-		if not bool(res["broke"]):
-			continue
+		fine[k] -= removed
+		mark_dirty(x, d)
+		_resettle(x, d)
+		var metre := Vector2i(x, d)
+		if not touched.has(metre):
+			touched.append(metre)
+		out["cut"] = float(out["cut"]) + removed * hardness / float(Tuning.SUB * Tuning.SUB)
+		if fine[k] <= Tuning.OPEN_FILL:
+			fine[k] = 0.0
+			_resettle(x, d)
+		# **Ask the METRE, not the fine cell.** The break used to fire only when a
+		# fine cell landed exactly on zero, which misses the case the whole
+		# threshold exists for: a metre can cross into "worked out" because the
+		# sum of what is left fell under the line, with no single cell hitting
+		# zero on that tick. The core was the casualty - it was cut to nothing,
+		# never paid, and the extraction never started.
+
+	# A metre pays when what is left of it falls under the line. Everything about
+	# what a cell is WORTH is still decided in one place.
+	for c in touched:
+		if is_open(c.x, c.y) and mat[idx(c.x, c.y)] != Ore.AIR:
+			broke_metres.append(c)
+	for c in broke_metres:
+		var res := _break_metre(c.x, c.y)
 		out["broke"] = int(out["broke"]) + 1
 		if bool(res["core"]):
 			out["core"] = true
@@ -386,12 +641,38 @@ func carve(a: Vector2, b: Vector2, radius: float, feather: float, hp: float) -> 
 		if int(res["filament"]) > 0:
 			out["filament"] = int(out["filament"]) + int(res["filament"])
 			continue
-		# Each broken cell is reported on its own, because the hold can fill
+		# Each broken metre is reported on its own, because the hold can fill
 		# half way through a tick and the rest has to land on the ground.
 		(out["cells"] as Array).append({
 			"x": c.x, "d": c.y, "mat": int(res["mat"]),
 			"kg": float(res["kg"]), "value": float(res["value"]),
 		})
+	return out
+
+
+## What a metre gives up once the last of it is gone. Split out of `cut` so the
+## carve and the whole-cell API reach the same rules by the same road.
+func _break_metre(x: int, d: int) -> Dictionary:
+	var out := {"mat": Ore.AIR, "kg": 0.0, "value": 0.0, "filament": 0, "core": false}
+	var i := idx(x, d)
+	var m := int(mat[i])
+	out["mat"] = m
+	_check_ceiling(x, d)
+	if m == Ore.CACHE:
+		out["filament"] = Tuning.CACHE_FILAMENT[Tuning.band_at(float(d))]
+		mat[i] = Ore.AIR
+		return out
+	if m == Ore.CORE:
+		out["core"] = true
+		mat[i] = Ore.AIR
+		return out
+	var y := Ore.yield_of(m, seam[i] == 1)
+	out["kg"] = y["kg"]
+	out["value"] = y["value"]
+	mat[i] = Ore.AIR
+	return out
+
+
 	return out
 
 
@@ -466,10 +747,10 @@ func collapse(x: int, d: int, from_x: int, from_d: int) -> bool:
 	var i := idx(x, d)
 	var was_mat := mat[i]
 	mat[i] = Ore.ROCK
-	fill[i] = 1.0
+	set_fill(x, d, 1.0)
 	if route_out(from_x, from_d) < 0:
 		mat[i] = was_mat
-		fill[i] = 0.0
+		set_fill(x, d, 0.0)
 		return false
 	return true
 
@@ -524,10 +805,10 @@ func settle(dt: float) -> Array[Vector2i]:
 			# fills, which is a rock falling rather than a cell vanishing.
 			var below := Vector2i(c.x, c.y + 1)
 			mat[idx(c.x, c.y)] = Ore.AIR
-			fill[idx(c.x, c.y)] = 0.0
+			set_fill(c.x, c.y, 0.0)
 			if in_bounds(below.x, below.y):
 				mat[idx(below.x, below.y)] = Ore.ROCK
-				fill[idx(below.x, below.y)] = 1.0
+				set_fill(below.x, below.y, 1.0)
 	for c in fell:
 		unstable.erase(c)
 	return fell

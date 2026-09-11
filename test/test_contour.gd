@@ -9,7 +9,7 @@ func _open_pocket(seed_value: int, cells: Array) -> World:
 	for c in cells:
 		var v: Vector2i = c
 		if w.in_bounds(v.x, v.y):
-			w.fill[w.idx(v.x, v.y)] = 0.0
+			w.set_fill(v.x, v.y, 0.0)
 			w.mat[w.idx(v.x, v.y)] = Ore.AIR
 	return w
 

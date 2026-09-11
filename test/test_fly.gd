@@ -13,7 +13,7 @@ func _open_world() -> World:
 	for d in range(-Tuning.SURFACE_ROWS, 60):
 		for x in range(-6, 7):
 			if w.in_bounds(x, d):
-				w.fill[w.idx(x, d)] = 0.0
+				w.set_fill(x, d, 0.0)
 				w.mat[w.idx(x, d)] = Ore.AIR
 	assert(w.is_open(0, 30), "the fixture must actually be open")
 	return w
@@ -107,7 +107,7 @@ func test_it_slides_along_a_wall_instead_of_stopping_dead(t: TestHarness) -> voi
 	var w := _open_world()
 	# Wall off the right-hand side of the shaft.
 	for d in range(-Tuning.SURFACE_ROWS, 60):
-		w.fill[w.idx(3, d)] = 1.0
+		w.set_fill(3, d, 1.0)
 		w.mat[w.idx(3, d)] = Ore.ROCK
 	var f := Flight.new(w)
 	f.pos = Vector2(2.0, 10.0)
@@ -177,7 +177,7 @@ func test_a_diagonal_hold_digs_when_it_cannot_skate(t: TestHarness) -> void:
 	var sim := Sim.new(1234)
 	# A one-cell pocket deep in solid rock: no free lateral run anywhere.
 	var d0 := 40
-	sim.world.fill[sim.world.idx(0, d0)] = 0.0
+	sim.world.set_fill(0, d0, 0.0)
 	sim.world.mat[sim.world.idx(0, d0)] = Ore.AIR
 	sim.flight.pos = Vector2(0.0, float(d0))
 	sim.flight.vel = Vector2.ZERO
@@ -191,6 +191,16 @@ func test_a_diagonal_hold_digs_when_it_cannot_skate(t: TestHarness) -> void:
 		sim.step(Vector2(1, 1).normalized(), true, DT)
 	t.gt(sim.flight.pos.y, start.y + 2.0, "twenty seconds of down-right gets somewhere down")
 	t.gt(sim.flight.pos.x, start.x + 1.0, "and somewhere right")
+
+
+## The mean fill of one metre out of a snapshot of the FINE field, so a before
+## and after can be compared metre by metre without storing two coarse arrays.
+func _mean_of(snap: PackedFloat32Array, w: World, x: int, d: int) -> float:
+	var total := 0.0
+	for j in range(Tuning.SUB):
+		for i in range(Tuning.SUB):
+			total += snap[w.fidx(x * Tuning.SUB + i, d * Tuning.SUB + j)]
+	return total / float(Tuning.SUB * Tuning.SUB)
 
 
 ## **The brush never reaches behind the ship.** It is swept from where the hull
@@ -211,7 +221,7 @@ func test_the_plow_never_carves_behind_the_ship(t: TestHarness) -> void:
 		# half eaten and still count as solid. Verified by making the brush carve
 		# three metres backwards, which this now catches and the earlier version
 		# did not.
-		var before := PackedFloat32Array(sim.world.fill)
+		var before := PackedFloat32Array(sim.world.fine)
 		for _i in range(180):
 			sim.power = sim.power_capacity()
 			sim.hull = Tuning.HULL_MAX
@@ -222,8 +232,7 @@ func test_the_plow_never_carves_behind_the_ship(t: TestHarness) -> void:
 			for x in range(int(start.x) - 6, int(start.x) + 7):
 				if not w.in_bounds(x, d):
 					continue
-				var i2 := w.idx(x, d)
-				if absf(w.fill[i2] - before[i2]) < 1.0e-5:
+				if absf(w.fill_at(x, d) - _mean_of(before, w, x, d)) < 1.0e-5:
 					continue
 				var away := Vector2(float(x), float(d)) - start
 				if away.dot(dir) >= -reach:

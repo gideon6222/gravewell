@@ -9,9 +9,20 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.10.1"
+const VERSION := "0.11.0"
 
 const RELEASES := [
+	{
+		"version": "0.11.0",
+		"date": "2026-09-11",
+		"title": "Rock comes away in smaller pieces",
+		"notes": [
+			"The rock is cut at a third of a metre instead of a whole one, so the wall comes away in pieces a third the size and recedes steadily instead of in chunks.",
+			"Digging is slower again: a full descent is about four minutes of cutting against three.",
+			"The ship is stopped by exactly the rock you can see, rather than by a whole metre that is mostly gone.",
+			"The lamp solves faster and the ground is rebuilt in small pieces, so the hitch when you cross a metre is gone.",
+		],
+	},
 	{
 		"version": "0.10.1",
 		"date": "2026-09-11",

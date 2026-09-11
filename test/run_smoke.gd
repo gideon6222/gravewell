@@ -156,6 +156,8 @@ func _check_the_lamp_is_one_light(main) -> void:
 	# And the diagnostic is off in the shipped picture.
 	_t.eq(int(haze.get_shader_parameter("debug_term")), 0,
 		"the air is rendering a debug term instead of the game")
+	_t.eq(int(rock.get_shader_parameter("debug_term")), 0,
+		"the rock is rendering a debug term instead of the game")
 
 	# The rock picks its normal-map projection from where the front face sits in
 	# z, because the mesh's smoothed normals cannot tell a wall from a face. That
@@ -566,7 +568,7 @@ func _check_the_game_makes_a_sound(main) -> void:
 	_t.begin("smoke > the room sounds like the room it is")
 	var tight := Sim.new(77)
 	for d in range(-1, 40):
-		tight.world.fill[tight.world.idx(0, d)] = 0.0
+		tight.world.set_fill(0, d, 0.0)
 		tight.world.mat[tight.world.idx(0, d)] = Ore.AIR
 	tight.flight.pos = Vector2(0, 30.0)
 	for _i in range(200):
@@ -574,7 +576,7 @@ func _check_the_game_makes_a_sound(main) -> void:
 	var dry: float = a._reverb.wet
 	for d in range(20, 42):
 		for x in range(-8, 9):
-			tight.world.fill[tight.world.idx(x, d)] = 0.0
+			tight.world.set_fill(x, d, 0.0)
 			tight.world.mat[tight.world.idx(x, d)] = Ore.AIR
 	for _i in range(200):
 		a.tick(tight, 0.1)

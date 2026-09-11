@@ -23,10 +23,10 @@ func _process(_delta: float) -> bool:
 		var cd := sim.world.core_depth()
 		# Cut the shaft the player would have dug, so there is a real route out.
 		for d in range(-1, cd + 1):
-			sim.world.fill[sim.world.idx(sim.world.core_x, d)] = 0.0
+			sim.world.set_fill(sim.world.core_x, d, 0.0)
 			sim.world.mat[sim.world.idx(sim.world.core_x, d)] = Ore.AIR
 		sim.world.mat[sim.world.idx(sim.world.core_x, cd)] = Ore.CORE
-		sim.world.fill[sim.world.idx(sim.world.core_x, cd)] = 1.0
+		sim.world.set_fill(sim.world.core_x, cd, 1.0)
 		sim.flight.pos = Vector2(float(sim.world.core_x), float(cd) - 1.2)
 		for _i in range(int(90.0 * 60.0)):
 			if sim.phase != Sim.Phase.DESCENT:

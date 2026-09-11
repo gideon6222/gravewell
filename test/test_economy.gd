@@ -203,7 +203,7 @@ func test_the_thrust_ladder_is_felt_in_the_hand(t: TestHarness) -> void:
 	# multiplier would only prove the table; this proves the flight reads it.
 	for sim in [slow, fast]:
 		for d in range(-2, 40):
-			sim.world.fill[sim.world.idx(0, d)] = 0.0
+			sim.world.set_fill(0, d, 0.0)
 			sim.world.mat[sim.world.idx(0, d)] = Ore.AIR
 		for _i in range(90):
 			sim.step(Vector2(0, 1), false, DT)

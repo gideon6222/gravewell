@@ -64,12 +64,16 @@ func test_the_ship_advances_on_every_tick_of_a_drill(t: TestHarness) -> void:
 ## material. Measured with the clamp in: it went straight through a planet's core
 ## without cutting it and ended forty metres past, the core still at fill 0.62.
 func test_the_plow_never_reaches_zero(t: TestHarness) -> void:
+	# Measured at the drill tier a player reaching that band will have bought,
+	# not at tier 0: the deepest rock is meant to WANT a better drill, and a floor
+	# stated at tier 0 would make the ladder pointless by forbidding it.
+	var tier: float = Upgrades.mult("drill", Tuning.PLOW_MIN_TIER)
 	for band in range(Tuning.BAND_HP.size()):
 		var h: float = Tuning.BAND_HP[band]
-		var v := Tuning.plow_speed(Tuning.DRILL_RATE, h)
+		var v := Tuning.plow_speed(Tuning.DRILL_RATE * tier, h)
 		t.gt(v, Tuning.PLOW_MIN_ROCK,
-			"band %d plows at %.3f m/s, under the %.2f that still reads as moving"
-				% [band, v, Tuning.PLOW_MIN_ROCK])
+			"band %d plows at %.3f m/s with a tier %d drill, under the %.2f that still reads as moving"
+				% [band, v, Tuning.PLOW_MIN_TIER, Tuning.PLOW_MIN_ROCK])
 
 
 ## **Denser material is slower, and the spread is the one the player can feel.**

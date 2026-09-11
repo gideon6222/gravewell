@@ -18,8 +18,17 @@ const DEPTH_SIGN := -1.0
 
 ## The window of rock rebuilt around the ship, in cells. Wide enough that a
 ## camera pull-back from a lamp upgrade cannot reach the edge of it.
-const HALF_W := 15
-const HALF_D := 24
+## The window of rock kept meshed around the ship, in cells.
+##
+## The camera sits 15.5 units back at a 46 degree vertical field of view, so at
+## the rock's own plane it sees about 6.6 m up and down and 3.0 m across. These
+## are roughly double that in each direction, which is margin for a lamp upgrade
+## pulling the camera back and nothing more. They were 15 and 24, which is a
+## window eleven times the area of the frame - affordable when the whole thing
+## was one mesh rebuilt on a cell change, and the dominant cost once the contour
+## went to a quarter of a metre.
+const HALF_W := 8
+const HALF_D := 13
 
 const CAM_FOV := 46.0        ## vertical degrees. Portrait's horizontal cone is
                              ## about 22 degrees at this aspect
@@ -219,6 +228,9 @@ func _build_world() -> void:
 	# the branch does not run without the texture. A test that cannot fail is
 	# untested, not safe.
 	_rock_mat.set_shader_parameter("face_z", Terrain.HALF)
+	# The rock's term-isolation switch, set explicitly for the same reason the
+	# air's is: an unset uniform reads back as null and `int(null)` throws.
+	_rock_mat.set_shader_parameter("debug_term", 0)
 	# The single highest-value import in the game. "Cartoonie" from him means
 	# under-lit and under-textured, never the model style, and a normal map on
 	# the largest surface plus a real light with falloff does more than any
@@ -572,9 +584,18 @@ func _sync_camera(dt: float) -> void:
 ## so it runs every frame.
 func _redraw_world() -> void:
 	var cell := Vector2i(int(roundf(sim.flight.pos.x)), int(roundf(sim.flight.pos.y)))
+	# **The renderer asks the simulation what changed shape, rather than guessing
+	# from where the ship is.** Crossing a metre changes no rock at all; the drill
+	# changes a metre or two every tick. With a chunked mesh the difference is the
+	# whole cost: rebuilding the window on a cell change was 31 ms, and rebuilding
+	# the chunk the drill is in is a fraction of a frame.
+	var rect := sim.world.take_dirty()
+	if rect.size() == 2:
+		for d in range(rect[0].y, rect[1].y + 1):
+			for x in range(rect[0].x, rect[1].x + 1):
+				_terrain.touch_at(x, d)
 	if cell != _last_cell:
 		_last_cell = cell
-		_terrain.touch()
 		_field.touch()
 	_terrain.refresh(cell, HALF_W, HALF_D)
 	_field.refresh(sim.world, cell)
