@@ -269,7 +269,7 @@ func tick(dt: float) -> void:
 		c.visible = not in_hold
 	if in_hold:
 		_bank.text = "%s cr   %d fil   %d/7 cores" % [
-			SimUtil.fmt(sim.credits), sim.filament, sim.cores]
+			SimUtil.fmt(sim.credits), sim.filament, sim.cores_held()]
 		_launch_btn.set_enabled(true)
 		if sim.planet_finished():
 			_launch_btn.set_caption("LAUNCH", "to a new world")

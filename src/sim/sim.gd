@@ -33,6 +33,9 @@ signal core_cut(seconds: float)
 signal seal_refused(tier: int)
 signal found_keepsake(planet: int)
 signal found_log(planet: int)
+## The drive is complete and the game is over. Fires once, and the chart keeps
+## generating worlds afterwards.
+signal ended()
 signal drill_bite(hardness: float)
 signal collapsed(x: int, d: int)
 
@@ -42,7 +45,19 @@ enum Phase { DESCENT, EXTRACTION, OVER, HOLD }
 ## ever FOUND, and it is the only thing that buys a counter to a threat.
 var credits: float = 0.0
 var filament: int = 0
-var cores: int = 0
+## **The drive: one slot per class, and the classes in it.**
+##
+## Not a tally. Seven cores off the same world is not a drive, and the count has
+## to be DERIVED from the slots or the two drift - which is the fault this repo
+## has already shipped three times in other clothes.
+var core_classes: Array[int] = []
+
+## Whether the way out has been taken, and when. The endless game is still there
+## behind it: finishing is a thing that has happened, never a door that closes.
+var finished := false
+var finished_at := 0.0
+## On the last world, which is reached only with a full drive.
+var at_the_gravewell := false
 
 ## The ladder, by upgrade id. `bought` is the count across the whole tree, which
 ## is what makes every purchase raise the price of the next one.
@@ -143,14 +158,90 @@ func launch() -> void:
 ## filament, cores, the ladder, the record - and only the planet is new.
 func next_planet() -> void:
 	planet += 1
-	# The class alternates for now. A later milestone replaces this with the
-	# chart, where choosing WHERE to go is the decision the classes exist for.
-	world = World.new(planet, planet % Classes.ALL.size())
+	at_the_gravewell = false
+	world = World.new(planet, chart_class())
 	flight = Flight.new(world)
 	drops.clear()
 	deepest = 0.0
 	descents = 0
 	redescend()
+
+
+# ── the drive ─────────────────────────────────────────────────────────────
+
+## How many slots are filled. Derived, never stored beside the slots.
+func cores_held() -> int:
+	return core_classes.size()
+
+
+func has_core(class_id: int) -> bool:
+	return core_classes.has(class_id)
+
+
+## Put a class's core in the drive. A second core of a class already held fills
+## nothing: the drive wants seven DIFFERENT worlds, which is what makes the chart
+## a decision rather than a queue.
+func fit_core(class_id: int) -> void:
+	if core_classes.has(class_id):
+		return
+	core_classes.append(class_id)
+
+
+func drive_complete() -> bool:
+	return cores_held() >= Classes.ALL.size()
+
+
+## **The class the chart offers next, and it is always one the drive still
+## needs.**
+##
+## This is the whole guard against an unwinnable save. Whatever has been lost,
+## the next world can always move the goal - the plan calls a permanently
+## unwinnable save "the one outcome this must not have". Once the drive is full
+## it offers anything, because nothing is needed any more and the chart is simply
+## generating worlds again.
+func chart_class() -> int:
+	var want: Array[int] = []
+	for c in Classes.ALL:
+		if not core_classes.has(int(c["id"])):
+			want.append(int(c["id"]))
+	if want.is_empty():
+		return planet % Classes.ALL.size()
+	# Deterministic, and it walks the outstanding classes rather than repeating
+	# one: a chart that offers the same missing world every time is a wall with a
+	# different shape.
+	return want[planet % want.size()]
+
+
+## With every slot filled, the chart opens a route to the place that cannot
+## otherwise be reached.
+func can_launch_final() -> bool:
+	return drive_complete() and not at_the_gravewell
+
+
+## Go there. It is a real descent to a real core and not a cutscene: the last
+## thing the player does in this game is the thing they have done all along.
+func launch_final() -> void:
+	if not can_launch_final():
+		return
+	planet += 1
+	at_the_gravewell = true
+	# The Gravewell is not one of the seven. It is where they were all going, and
+	# it is the heaviest rock in the game.
+	world = World.new(planet, Classes.CRUSH)
+	flight = Flight.new(world)
+	drops.clear()
+	deepest = 0.0
+	descents = 0
+	redescend()
+
+
+## Taking the last core. Fires once, and closes nothing.
+func claim_gravewell() -> void:
+	if finished:
+		return
+	finished = true
+	finished_at = time
+	ended.emit()
 
 
 ## Start another descent on the SAME planet. The world, and therefore every
@@ -562,7 +653,7 @@ func _extract(dt: float) -> void:
 func _escape() -> void:
 	phase = Phase.OVER
 	outcome = "escaped with the core"
-	cores += 1
+	fit_core(world.class_id)
 	carrying_core = false
 	credits += hold_value()
 	hold = {}
@@ -755,5 +846,5 @@ func snapshot() -> Dictionary:
 		"deepest": snappedf(deepest, 0.001),
 		"phase": phase,
 		"rising": snappedf(rising, 0.001),
-		"cores": cores,
+		"cores": cores_held(),
 	}

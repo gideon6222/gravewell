@@ -520,7 +520,8 @@ func _check_the_hold_is_a_place(main) -> void:
 	main.sim.credits = 100000.0
 	main.sim.filament = 99
 	main.sim.record = 250.0
-	main.sim.cores = 2
+	main.sim.fit_core(Classes.CINDER)
+	main.sim.fit_core(Classes.RIME)
 	main.sim.outcome = "out of power"
 	main.sim.enter_hold()
 	main.advance(0.2)

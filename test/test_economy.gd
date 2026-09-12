@@ -284,7 +284,8 @@ func test_a_new_planet_keeps_everything_you_earned(t: TestHarness) -> void:
 	var sim := Sim.new(4)
 	sim.credits = 1234.0
 	sim.filament = 7
-	sim.cores = 2
+	sim.fit_core(Classes.CINDER)
+	sim.fit_core(Classes.RIME)
 	sim.record = 143.0
 	sim.levels = {"drill": 2, "hold": 1}
 	sim.bought = 3
@@ -294,7 +295,7 @@ func test_a_new_planet_keeps_everything_you_earned(t: TestHarness) -> void:
 
 	t.approx(sim.credits, 1234.0, 1e-4, "credits did not survive the crossing")
 	t.eq(sim.filament, 7, "filament did not survive the crossing")
-	t.eq(sim.cores, 2, "the cores did not survive the crossing")
+	t.eq(sim.cores_held(), 2, "the cores did not survive the crossing")
 	t.approx(sim.record, 143.0, 1e-4, "the record did not survive, so the rack re-seals")
 	t.eq(sim.level_of("drill"), 2, "the ladder did not survive the crossing")
 	t.eq(sim.bought, 3, "the purchase count did not survive, so prices reset")

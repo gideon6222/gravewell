@@ -1073,7 +1073,13 @@ and protrusions are what throw the hard wedges he is seeing.
 - [x] **M19. Log fragments and the log wall.** (0.14.0) A mode on the pause sheet: what you
       have is printed, what you have not is redacted to the same length so the gap has a
       shape, and the count is honest. *Proves it:* the smoke run's wall check.
-- [ ] The drive completing, the final world, and the ending, with the endless game behind it
+- [ ] The drive completing, the final world, and the ending, with the endless game behind it.
+      *Sim layer done and committed:* seven slots holding one core per class rather than a
+      tally, `chart_class()` always offering a class the drive still needs (the guard against
+      a permanently unwinnable save), `launch_final()` into the Gravewell, `claim_gravewell()`
+      firing `ended` once, the drive surviving a save, and the chart still generating worlds
+      afterwards. *Owed before this ticks:* the two guards in `test_drive.gd` that cannot
+      currently fail (NOTES 50), and the whole presentation side, which is the ending itself.
 - [ ] The full consumable and ordnance set, including the collapse charge and the flare
 - [ ] Second-tier upgrades and the Survey instrument that gives a bearing and never a marker
 - [ ] **Attention, and the things that live in the tunnels.** Attention rises while you drill

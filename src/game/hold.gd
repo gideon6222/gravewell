@@ -216,7 +216,7 @@ func refresh() -> void:
 		# A slot that is filled GLOWS, and one that is not is dark metal. The
 		# collection is a thing you look at, not a number that will look small
 		# next week.
-		m.emission_energy_multiplier = 2.4 if i < sim.cores else 0.0
+		m.emission_energy_multiplier = 2.4 if sim.has_core(i) else 0.0
 
 
 func _build_case(row: Dictionary, at: Vector3) -> Node3D:

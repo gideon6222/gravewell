@@ -1191,3 +1191,76 @@ The log wall's smoke check assigned an untyped array literal to an `Array[int]`,
 which is a script error rather than a failed assertion: the suite printed "176
 assertions, all passing" and `check.ps1` failed the step on the error count. That
 is the blind-gate fix from 0.10.0 earning its keep for the first time.
+
+### 49. Shared scratch paths across concurrent sessions corrupted a source file
+
+A background verification loop used `/tmp/s.keep` as its backup path. Another
+Claude session building stillwater uses the same path, and its `sim.gd` was
+restored over gravewell's: the file came back holding `HOLDING`, `tension`,
+`reeling` and `TENSION_MAX`, none of which are words in this game. It was caught
+by grepping for the other game's vocabulary, and recovered with
+`git checkout -- src/sim/sim.gd`, which cost the whole drive milestone.
+
+**Several sessions share this PC, so `/tmp/<short-name>` is shared mutable state
+between them.** Every temporary file now goes in the session scratchpad, whose
+path is unique per session. The rule generalises past backups: any fixed path
+outside the repo is a collision waiting for a second session.
+
+### 50. Two of the seven drive guards could not fail
+
+Rule 11 run over the new suite, five faults reintroduced one at a time:
+
+| Fault | Caught |
+|---|---|
+| `fit_core` appends unconditionally, so the drive is a tally | yes, 2 assertions |
+| `next_planet` stops clearing `at_the_gravewell` | yes |
+| the save drops the drive | yes, 3 assertions across 2 suites |
+| `claim_gravewell` loses its `if finished: return` latch | **no** |
+| `launch_final` never calls `redescend()` | **no** |
+
+The ending-fires-once test compares `finished_at` across two back-to-back calls,
+but no time passes between them, so the re-stamp writes the same value and the
+assertion cannot fail. It also never counts the `ended` signal, which is the
+thing actually promised. The final-world test asserts `phase == DESCENT`, which
+is already true on arrival, so it proves nothing about the world being set up.
+Both are owed a real assertion before the ending ships.
+
+### 51. The save version has to be bumped when a field CHANGES SHAPE
+
+`cores` went from a tally to an array of class ids and `VERSION` stayed at 2, so
+an existing save passed the version check and then met `as Array` on an integer,
+which yields null and is then iterated. The version comment in the same commit
+claimed the bump made old saves unreadable, and the bump had not happened: the
+comment described the intent and the code did not do it. `VERSION` is 3 and a
+test pins a v2 save carrying a core tally being refused.
+
+### 52. Serialisation here is still not a pure pair, and that is owed
+
+INDEX.md rule 2 (settled 2026-09-12) excludes the renderer from the simulation
+wall and not the disk, so `FileAccess` in `src/sim/save.gd` is fine. What the
+rule requires is that the disk must not be the only way to test a round trip:
+state to `Dictionary` to state has to be assertable without a file.
+
+**gravewell does not have that pair.** `write()` builds the dictionary inline
+inside the `FileAccess.open` block and `read()` applies it inline, so every save
+test today writes to `user://` and reads it back. Splitting out `to_dict()` and
+`apply(d)` with the file calls as thin wrappers is owed, and is deliberately not
+done in this commit: it touches every save test and belongs in its own change.
+
+### 53. A bare `godot --script run_tests.gd` runs FEWER suites than the gate
+
+The gate's own run reported 22 suites and 204 tests where every ad-hoc run in this session
+reported 20 and 195. The two missing suites were `test_controls.gd` and
+`test_sim_boundary.gd`, both committed since 435a490 and both passing: their `.uid` files
+had never been generated, and the runner discovers suites through
+`DirAccess.open("res://test")`, which answers from the import cache. `check.ps1` runs
+`--import` as its first step, which generated the two `.uid` files and made the suites
+visible.
+
+CI is not affected, because it also imports before it tests. **The blindness was local and
+it was mine**: two suites had been silently skipped all session. The runner's own comment
+already warns that a `test_*.gd` nobody registered is a file full of nothing, and this is
+the same failure arriving through the import cache instead of an array.
+
+`scripts\check.ps1` is the gate for a reason. A bare `--script` run is a fast inner loop,
+never evidence, and the number of suites it prints has to be read alongside the count.

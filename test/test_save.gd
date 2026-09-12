@@ -20,7 +20,9 @@ func test_a_save_round_trips(t: TestHarness) -> void:
 	var a := Sim.new(3)
 	a.credits = 4321.5
 	a.filament = 11
-	a.cores = 3
+	a.fit_core(Classes.CINDER)
+	a.fit_core(Classes.RIME)
+	a.fit_core(Classes.DROWN)
 	a.record = 167.25
 	a.planet = 5
 	a.levels = {"drill": 2, "lamp": 1}
@@ -31,7 +33,7 @@ func test_a_save_round_trips(t: TestHarness) -> void:
 	t.ok(Save.read(b), "the save did not read back")
 	t.approx(b.credits, 4321.5, 1e-4, "credits")
 	t.eq(b.filament, 11, "filament")
-	t.eq(b.cores, 3, "cores")
+	t.eq(b.cores_held(), 3, "cores")
 	t.approx(b.record, 167.25, 1e-4, "the record, which gates the whole rack")
 	t.eq(b.planet, 5, "the planet")
 	t.eq(b.level_of("drill"), 2, "a ladder level")
@@ -140,5 +142,23 @@ func test_a_save_from_another_version_is_ignored(t: TestHarness) -> void:
 	f.close()
 	var s := Sim.new(1)
 	t.ok(not Save.read(s), "a save from another version was read anyway")
+	t.approx(s.credits, 0.0, 1e-6, "and it brought its credits with it")
+	_clean()
+
+
+## **The version has to be bumped when the shape of a field changes, not only
+## when a field is added.** Version 2 stored `cores` as a tally, an integer.
+## Version 3 stores the drive, an array of class ids. Left at 2, such a save
+## passes the version check and then `as Array` on an integer yields null, which
+## the loop walks straight into. The bump is what makes that unreachable, so this
+## pins the bump rather than the crash.
+func test_a_version_2_save_with_a_core_tally_is_refused(t: TestHarness) -> void:
+	_clean()
+	var f := FileAccess.open(Save.PROGRESS, FileAccess.WRITE)
+	f.store_string(JSON.stringify({"v": 2, "credits": 900.0, "cores": 3}))
+	f.close()
+	var s := Sim.new(1)
+	t.ok(not Save.read(s), "a save whose cores field is a tally was read into a drive")
+	t.eq(s.cores_held(), 0, "the drive came back holding %d cores from a v2 save" % s.cores_held())
 	t.approx(s.credits, 0.0, 1e-6, "and it brought its credits with it")
 	_clean()

@@ -313,7 +313,7 @@ func test_the_clock_is_derived_from_the_route_not_set_flat(t: TestHarness) -> vo
 func test_climbing_out_with_the_core_finishes_the_planet(t: TestHarness) -> void:
 	var sim := _at_the_core(21)
 	_cut_the_core(sim)
-	var before := sim.cores
+	var before := sim.cores_held()
 	# Fly straight up the shaft that was cut.
 	for _i in range(int(Tuning.EXTRACT_MAX_S / DT)):
 		if sim.phase != Sim.Phase.EXTRACTION:
@@ -323,7 +323,7 @@ func test_climbing_out_with_the_core_finishes_the_planet(t: TestHarness) -> void
 		sim.step(Vector2(0, -1), false, DT)
 	t.eq(sim.phase, Sim.Phase.OVER, "the extraction ended")
 	t.eq(sim.outcome, "escaped with the core", "and it ended by escaping")
-	t.eq(sim.cores, before + 1, "the core is in the drive")
+	t.eq(sim.cores_held(), before + 1, "the core is in the drive")
 	t.ok(not sim.carrying_core, "and is no longer being carried")
 
 
@@ -333,7 +333,7 @@ func test_failing_the_extraction_never_takes_the_save(t: TestHarness) -> void:
 	sim.credits = 500.0
 	sim.filament = 9
 	_cut_the_core(sim)
-	var before_cores := sim.cores
+	var before_cores := sim.cores_held()
 	# Sit still and let it come up.
 	for _i in range(int((Tuning.EXTRACT_MAX_S + 10.0) / DT)):
 		if sim.phase != Sim.Phase.EXTRACTION:
@@ -343,7 +343,7 @@ func test_failing_the_extraction_never_takes_the_save(t: TestHarness) -> void:
 		sim.step(Vector2.ZERO, false, DT)
 	t.eq(sim.phase, Sim.Phase.OVER, "sitting still ends it")
 	t.eq(sim.outcome, "taken by the collapse", "and says why")
-	t.eq(sim.cores, before_cores, "the core is not banked")
+	t.eq(sim.cores_held(), before_cores, "the core is not banked")
 	t.approx(sim.credits, 500.0, 1e-4, "credits already banked are kept")
 	t.eq(sim.filament, 9, "filament already found is kept")
 	sim.redescend()

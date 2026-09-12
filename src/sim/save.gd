@@ -29,7 +29,7 @@ const SETTINGS := "user://settings.cfg"
 
 ## Bumped when the shape changes. A load that does not recognise the version
 ## starts fresh rather than half-reading an old one into a new game.
-const VERSION := 2
+const VERSION := 3
 
 ## **A one-way latch.** Erasing progress has to survive the save that fires on
 ## the way out: without this, wiping progress and then backgrounding the app
@@ -49,7 +49,8 @@ static func write(sim: Sim) -> void:
 		"v": VERSION,
 		"credits": sim.credits,
 		"filament": sim.filament,
-		"cores": sim.cores,
+		"cores": sim.core_classes,
+		"finished": sim.finished,
 		"record": sim.record,
 		"planet": sim.planet,
 		"class": sim.world.class_id,
@@ -80,7 +81,13 @@ static func read(sim: Sim) -> bool:
 
 	sim.credits = float(d.get("credits", 0.0))
 	sim.filament = int(d.get("filament", 0))
-	sim.cores = int(d.get("cores", 0))
+	# **The drive is a list of classes, not a tally.** A save from before it was
+	# one stored an integer; the version bump means such a save is not read at
+	# all, so nothing here has to cope with both shapes.
+	sim.core_classes = []
+	for c in (d.get("cores", []) as Array):
+		sim.core_classes.append(int(c))
+	sim.finished = bool(d.get("finished", false))
 	sim.record = float(d.get("record", 0.0))
 	sim.planet = int(d.get("planet", 1))
 	sim.bought = int(d.get("bought", 0))
