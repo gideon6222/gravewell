@@ -3,10 +3,19 @@ extends RefCounted
 
 ## Progress on disk, and settings beside it in their own file.
 ##
-## Deliberately inside the simulation wall. It touches `FileAccess` and nothing
-## else about the engine: no Node, no Viewport, no input event, no frame. That is
-## what lets a headless test round-trip a save without standing a game up, and it
-## is the same place `save.gd` sits in the sibling Godot games.
+## Inside the simulation wall, which INDEX.md rule 2 permits: the wall excludes
+## the renderer, not the disk, so `src/sim` MAY use `FileAccess`/`DirAccess` under
+## `user://`. It touches nothing else about the engine: no Node, no Viewport, no
+## input event, no frame.
+##
+## **Placement is not the convention, and there is none.** Either side of the wall
+## is legal - stillwater keeps its writes in `main.gd`, this file keeps them here.
+## What rule 2 actually requires is that the disk must not be the only way to test
+## a save: serialisation is a pure state/`Dictionary` pair asserted by a round-trip
+## test that touches no file, with the file call a thin wrapper over that pair.
+## **This file does not yet have that pair** - `write()` builds the dictionary
+## inline and `read()` applies it inline, so today the only way to test it is
+## through `user://`. Splitting out `to_dict`/`apply` is owed.
 ##
 ## ## Two files, on purpose
 ##
