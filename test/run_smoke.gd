@@ -415,10 +415,30 @@ func _check_there_is_always_a_way_on(main) -> void:
 
 	var banked: float = main.sim.credits
 	var cut_depth: float = main.sim.deepest
-	main.sim.redescend()
+
+	# **Through the thumb, never through the method.** This check used to call
+	# `main.sim.redescend()` here, which proved the rule works and never that any
+	# control on screen reaches it. It passed for the whole of build 25, in which
+	# a finished descent froze the game forever: nothing called `enter_hold()` and
+	# no control listened for the tap the HUD was asking for. A way on that only
+	# the simulation knows about is not a way on.
+	_t.ok(main._hud._touch.visible,
+		"the descent is over and nothing on screen can take a tap")
+	var at: Vector2 = main._hud._touch.get_global_rect().get_center()
+	main._hud._touch.touched.emit(at, true)
+	main._hud._touch.touched.emit(at, false)
+	main.advance(0.5)
+	_t.eq(main.sim.phase, Sim.Phase.HOLD,
+		"tapping a finished descent did not reach the Hold, which is where the game is")
+	_t.ok(main._in_hold, "the sim entered the Hold and the scene did not follow it there")
+
+	# And the Hold has a way out, which is the same bug one room along.
+	_t.eq(main._hud._launch_btn.visible, true, "the Hold offers no way back down")
+	main._hud._launch_btn.pressed.emit()
 	main.advance(2.0)
-	_t.eq(main.sim.phase, Sim.Phase.DESCENT, "redescending did not start a new descent")
-	_t.approx(main.sim.credits, banked, 1e-4, "redescending lost the bank")
+	_t.eq(main.sim.phase, Sim.Phase.DESCENT, "LAUNCH in the Hold did not start a descent")
+	_t.ok(not main._in_hold, "the descent started with the Hold still over it")
+	_t.approx(main.sim.credits, banked, 1e-4, "going round the loop lost the bank")
 	_t.ok(main.sim.world.is_open(0, 3),
 		"the shaft cut on the last descent did not survive into this one")
 

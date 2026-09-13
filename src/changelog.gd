@@ -9,9 +9,21 @@ extends RefCounted
 ## preset - and `test_version.gd` asserts they agree, because nothing derives
 ## one from the other and they have drifted in a sibling game already.
 
-const VERSION := "0.14.0"
+const VERSION := "0.15.0"
 
 const RELEASES := [
+	{
+		"version": "0.15.0",
+		"date": "2026-09-12",
+		"title": "The loop closes",
+		"notes": [
+			"A finished descent is no longer the end of the game. However it ended, one tap takes you to the Hold, where you spend what you banked.",
+			"Fly back up to the pad and you dock: the whole load sells at full price, with none of the cut taken when a descent goes wrong.",
+			"Launching out of the Hold refuels and repairs the ship, and every tunnel you have already cut is still there.",
+			"The goal is on screen while you dig: how many of the seven cores the drive is holding.",
+			"The Hold, the upgrade rack, the vaults and the log wall were all in the last build and none of them could be reached. They can now.",
+		],
+	},
 	{
 		"version": "0.14.0",
 		"date": "2026-09-11",

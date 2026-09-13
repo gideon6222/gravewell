@@ -722,6 +722,16 @@ func _leave_hold() -> void:
 ## A tap in the Hold buys what it hit; a drag pans the room. Discriminated by
 ## MOVEMENT rather than by time, so the two verbs never fight.
 func _on_hold_touch(at: Vector2, pressed: bool) -> void:
+	# **The way out of a finished descent.** Every ending lands in the Hold,
+	# which is the only place between descents: the player who ran out of power
+	# arrives in the same room as the player who walked home, with what they
+	# banked and a ladder to spend it on.
+	if sim.phase == Sim.Phase.OVER:
+		if not pressed:
+			sim.enter_hold()
+			_audio.click(true)
+			Save.write(sim)
+		return
 	if pressed:
 		_drag_from = at
 		_dragging = false

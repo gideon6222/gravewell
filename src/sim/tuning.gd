@@ -20,6 +20,14 @@ const CELL := 1.0
 const HALF_WIDTH := 20            ## cells either side of the shaft centre: a 41-wide world
 const SURFACE_ROWS := 3           ## open air above depth 0, where the pad sits
 
+## How deep the ship must have been this descent before the pad will take it
+## back. The ship starts ON the pad at depth 0, so without an arming depth the
+## dock fires on the first frame and the descent ends before it begins. Six
+## metres is past the first band and about four ship lengths: far enough that
+## coming back is a decision, near enough that a player who dislikes the first
+## cut can turn round and still keep what they cut.
+const DOCK_ARM := 6.0
+
 ## A cell is passable only once it is FULLY cut. Shared by collision, the light
 ## flood and the drill, so a cell can never be flyable to one system and solid
 ## to another.

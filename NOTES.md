@@ -1264,3 +1264,55 @@ the same failure arriving through the import cache instead of an array.
 
 `scripts\check.ps1` is the gate for a reason. A bare `--script` run is a fast inner loop,
 never evidence, and the number of suites it prints has to be read alongside the count.
+
+### 54. The game had no middle, and every test passed
+
+His second phone session: *"If I run out of fuel, it says to tap to return or something like
+that but the game doesn't do anything."* It is literal. `main.gd` never called
+`sim.enter_hold()` and had no reaction to `Phase.OVER`, so a descent ended, `step()` returned
+early, the world froze, and the HUD asked for a tap that no control in the game was listening
+for. The single connection to `descent_over` wrote the save.
+
+The consequence is the rest of his message. The Hold is the only room that contains the
+drive, the upgrade ladder and the log wall, and it could not be entered, so the goal, the
+upgrades and the secrets were all invisible. **None of it was missing. All of it was
+unreachable.** Seven classes, vaults, keepsakes, the drive: built, tested, and not in the
+game.
+
+### 55. Docking: the one rule that really was absent
+
+There was no `dock()`. Returning to the surface did nothing because nothing had ever been
+written for it. It is now a rule with a reason: arriving under your own power after
+`DOCK_ARM` (6 m) banks the **full** hold value, no recovery cut, and drops the player in the
+Hold.
+
+That is the decision the uplink exists against - sell from depth at a power cost, or haul it
+home for everything and risk not arriving. A dock that paid the recovery cut would make the
+trip back pointless and the uplink the only move, and `test_dock.gd` asserts the gap between
+the two rather than either number.
+
+`DOCK_ARM` exists because the ship starts ON the pad at depth 0: without an arming depth the
+dock fires on the first frame and the descent ends before it begins.
+
+### 56. The smoke test called the method instead of pressing the button
+
+`_check_there_is_always_a_way_on` is named for exactly the bug he found, boots the real
+scene, and passed green through all of build 25. It called `main.sim.redescend()` directly.
+It proved the rule worked and never that a control on screen reached it, which is the
+documented "a test that re-derives the rule it is testing" wearing a scene around it.
+
+It now taps `_hud._touch` at its centre and presses `_launch_btn`, the same two things a
+thumb does, and asserts the player arrives in the Hold and gets back down. With the wiring
+removed it fails.
+
+**The general form: a smoke test that reaches past the controls is a unit test with a scene
+attached.** The suite's job at that layer is the wiring, so every assertion in it has to
+start at something the player can touch.
+
+### 57. A slow suite is the other sessions, not the code
+
+The suite timed out twice at 570 s against a measured 186 s earlier the same day, which read
+exactly like an infinite loop. It was four Godot processes: the `tests` step measured 446.9 s
+against 130.5 s in the morning for the same tree, a 3.4x slowdown, with other sessions
+building on this PC. Measure the suite alone before hunting a hang: `test_dock.gd` on its own
+took 24.4 s.

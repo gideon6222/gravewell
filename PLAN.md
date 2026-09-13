@@ -1029,6 +1029,45 @@ and protrusions are what throw the hard wedges he is seeing.
       button is outside the d-pad's rect at the phone's aspect.
 
 
+### Phase 1c: the loop, the goal and the introduction (from his second phone session, 2026-09-12)
+
+His words: *"I am not sure what the goal of the game is though. If I run out of fuel, it says
+to tap to return or something like that but the game doesn't do anything. If I return to the
+surface before running out of fuel, I don't get more fuel or see what I am supposed to do.
+Can you expand on the actually game play, rules, and introduction of the game. I want there
+to be a goal, upgrades, and secrets."*
+
+**The finding that reframes all four asks: none of this was missing, it was unreachable.**
+The drive, the Hold, the whole upgrade ladder, the vaults, the keepsakes and the log wall are
+built and tested in `src/sim`. `main.gd` never called `enter_hold()` and had no reaction to
+`Phase.OVER`, so a descent ended, the world froze, and the only room in the game that
+contains a goal, an upgrade or a secret could not be entered with a thumb. The work is
+therefore mostly presentation and loop, and the design additions below are the ones that
+being unable to see any of it revealed.
+
+- [x] **M20. Close the loop.** Every ending reaches the Hold and the Hold launches you back
+      down. Adds the one genuinely missing RULE: docking. Reaching the surface under your own
+      power after `DOCK_ARM` metres banks the full hold value, with no recovery cut, which is
+      the decision the uplink exists against - sell from depth at a power cost, or haul it
+      home for everything and risk not arriving. *Proves it:* `test_dock.gd`, eight tests on
+      the shape of the loop rather than on any one rule.
+- [ ] **M21. The objective, stated in the first two minutes.** The plan already requires this
+      and the game says it nowhere. A first-run briefing before the first descent, in the
+      salvager's own terms: seven dead worlds, one core each, a drive that takes seven. Then
+      the drive is on the HUD permanently as `n/7`, not only in the Hold, because a goal the
+      player has to open a shop to remember is not a goal they are playing toward.
+- [ ] **M22. The first descent teaches the verbs by needing them.** Ore inside the first six
+      metres so the hold fills before the pad is out of sight, a seam that wants the drill the
+      player cannot afford yet, and the first vault seal placed where the lamp finds it on the
+      way back up rather than on the way down.
+- [ ] **M23. A secret has to read as a secret.** A vault seal at thirty pixels currently reads
+      as ore. It needs a silhouette, a sound when the lamp first crosses it, and a refusal
+      that names the tier it wants, so "come back later" is information rather than a wall.
+- [ ] **M24. The chart: choosing WHERE to go.** `next_planet()` advances a counter.
+      `chart_class()` already decides which class the drive still needs, so the chart is a
+      screen over an existing rule: two or three worlds offered, each named by its rule and
+      its depth, one of them always a class the drive still needs.
+
 ### Phase 2: content and meta
 
 - [x] **M15. Drown, the third class.** (0.12.0) Water fills the tunnels you cut from the lowest point

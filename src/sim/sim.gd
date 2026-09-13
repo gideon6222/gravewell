@@ -93,6 +93,10 @@ var load_kg: float = 0.0
 var drops: Array[Dictionary] = []
 
 var deepest: float = 0.0
+## The same, but for THIS descent only, because the pad has to know whether the
+## ship has actually been anywhere. `deepest` is the planet's record and survives
+## a redescent, so it cannot answer that question.
+var descent_deepest: float = 0.0
 var descents: int = 0
 
 ## **How hard the work looks right now, 0 to 1, and zero when not drilling.**
@@ -143,6 +147,30 @@ func enter_hold() -> void:
 ## Whether the last descent finished the planet. Only carrying a core out does.
 func planet_finished() -> bool:
 	return outcome == "escaped with the core"
+
+
+## **Can the pad take the ship back?** Only during a live descent, and only once
+## the ship has actually been down: it starts ON the pad at depth zero, so a dock
+## that fired on contact with the surface would end the descent on the frame it
+## began.
+func can_dock() -> bool:
+	return phase == Phase.DESCENT and descent_deepest > Tuning.DOCK_ARM
+
+
+## **Home, with the load.** Carrying it up yourself pays the FULL value, which is
+## the decision the uplink exists against: sell from depth at a power cost, or
+## haul it back for everything and risk not arriving. Docking is not failing, so
+## there is no recovery cut, and it drops the player straight into the Hold
+## rather than into a screen that has to be dismissed.
+func dock() -> void:
+	if not can_dock():
+		return
+	credits += hold_value()
+	hold = {}
+	load_kg = 0.0
+	outcome = "docked"
+	descent_over.emit(outcome)
+	enter_hold()
 
 
 ## Out of the Hold. Either back down the shaft you already cut, or on to a new
@@ -259,6 +287,7 @@ func redescend() -> void:
 	extract_left = 0.0
 	extract_total = 0.0
 	rising = 0.0
+	descent_deepest = 0.0
 	descents += 1
 
 
@@ -355,7 +384,10 @@ func rack() -> Array[Dictionary]:
 ## player is asking to cut, which in practice is the same held direction, but
 ## they are separate arguments so a test can drive one without the other.
 func step(dir: Vector2, drilling: bool, dt: float) -> void:
-	if phase == Phase.OVER:
+	# **Nothing runs between descents.** OVER is a finished descent waiting for a
+	# tap; HOLD is a different place, and a world that keeps drilling, draining
+	# and healing behind the shop is the pop-up failure wearing a different coat.
+	if phase == Phase.OVER or phase == Phase.HOLD:
 		return
 	time += dt
 
@@ -408,7 +440,14 @@ func step(dir: Vector2, drilling: bool, dt: float) -> void:
 		_extract(dt)
 
 	deepest = maxf(deepest, flight.depth())
+	descent_deepest = maxf(descent_deepest, flight.depth())
 	record = maxf(record, deepest)
+	# **Home.** Arriving back at the surface under your own power is the other
+	# half of the loop, and it has to be checked before the two ways of failing:
+	# a ship that reaches the pad on its last drop of power has made it.
+	if can_dock() and flight.depth() <= 0.0:
+		dock()
+		return
 	if power <= 0.0:
 		_end("out of power")
 	elif hull <= 0.0:

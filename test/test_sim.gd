@@ -62,6 +62,13 @@ func test_a_full_hold_never_stops_the_drill(t: TestHarness) -> void:
 
 func test_dropped_ore_can_be_picked_up_later(t: TestHarness) -> void:
 	var sim := Sim.new(3)
+	# **Well below the pad, because flying up is now a way to end the descent.**
+	# From the surface this fixture dug past `DOCK_ARM` and then climbed for eight
+	# seconds, which reaches the pad, docks, and SELLS the ore it just collected -
+	# so the last assertion read zero for a reason that has nothing to do with
+	# picking things up. Twenty metres keeps the whole fixture underground and the
+	# only thing it measures is the drops.
+	sim.flight.pos = Vector2(0.0, 20.0)
 	sim.hold = {Ore.IRON: {"kg": Tuning.HOLD_KG, "value": 10.0, "count": 1}}
 	sim.load_kg = Tuning.HOLD_KG
 	_drive(sim, Vector2(0, 1), true, 12.0)

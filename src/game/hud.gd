@@ -262,7 +262,10 @@ func _on_manifest() -> void:
 
 func tick(dt: float) -> void:
 	var in_hold := sim.phase == Sim.Phase.HOLD
-	_touch.visible = in_hold
+	# **The tap layer is live while the descent is over too**, or the sentence
+	# telling the player to tap is addressed to nothing. That was build 25: the
+	# HUD said TAP TO DESCEND AGAIN and no control in the game was listening.
+	_touch.visible = in_hold or sim.phase == Sim.Phase.OVER
 	_launch_btn.visible = in_hold
 	_hold_hint.visible = in_hold
 	for c in [_depth, _power, _hull, _load_btn, _rate, _state, _pad, _lamp_btn, _uplink_btn, _pause_btn]:
@@ -283,7 +286,13 @@ func tick(dt: float) -> void:
 	_power.set_value(sim.power_frac(), "%d%%" % int(sim.power_frac() * 100.0), dt)
 	_hull.set_value(sim.hull_frac(), "%d%%" % int(sim.hull_frac() * 100.0), dt)
 	_load_btn.text = "%.0f/%.0f kg" % [sim.load_kg, Tuning.HOLD_KG]
-	_bank.text = "%s cr   %d fil" % [SimUtil.fmt(sim.credits), sim.filament]
+	# **The goal is on screen during the descent, not only in the shop.** His
+	# words on build 25 were "I am not sure what the goal of the game is", and the
+	# drive was legible in exactly one room, which was itself unreachable. A goal
+	# the player has to go somewhere to remember is not one they are playing
+	# toward.
+	_bank.text = "%s cr   %d fil   %d/7 cores" % [
+		SimUtil.fmt(sim.credits), sim.filament, sim.cores_held()]
 
 	# **Whichever gauge is actually going down.** Verge's pressure is on the
 	# battery rather than the hull, so a readout hard-wired to HULL would show
@@ -317,12 +326,14 @@ func tick(dt: float) -> void:
 	# knows about is not a way out, and a frozen HUD with no sentence on it has
 	# shipped twice from this template's ancestors.
 	if sim.phase == Sim.Phase.OVER:
+		# **The sentence names where the tap goes, and the tap goes there.** Both
+		# of these used to promise a descent and deliver nothing at all.
 		if sim.outcome == "escaped with the core":
 			_state.text = "OUT, WITH THE CORE.
-this world is finished. TAP TO GO ON"
+that is %d of 7. TAP FOR THE HOLD" % sim.cores_held()
 		else:
 			_state.text = "RECOVERED - %s
-your tunnels are still open. TAP TO DESCEND AGAIN" % sim.outcome
+you keep what you banked. TAP FOR THE HOLD" % sim.outcome
 	elif sim.phase == Sim.Phase.EXTRACTION:
 		# A number, not a bar: the player needs to know how long, not roughly how
 		# much. And it is the same quantity the simulation kills them with, so the
