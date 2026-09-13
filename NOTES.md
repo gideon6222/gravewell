@@ -1316,3 +1316,20 @@ exactly like an infinite loop. It was four Godot processes: the `tests` step mea
 against 130.5 s in the morning for the same tree, a 3.4x slowdown, with other sessions
 building on this PC. Measure the suite alone before hunting a hang: `test_dock.gd` on its own
 took 24.4 s.
+
+### 58. Phone checks on 0.15.0: not done, and why
+
+`scripts\phone.ps1 devices` (the one sanctioned read-only adb call, no lease, nothing touched
+on the handset) reports **phone not connected** on 2026-09-13. Not a lease conflict and not
+exit 75: the handset is unplugged.
+
+So the phone-only paths on 0.15.0 are **not done** and are owed before the next ship: back
+button, home then resume, rotation lock, safe area, haptics, and `perf` at the start of a
+session and again ten minutes in. `POLISH.md` allows the deferral only while the device list
+is empty, which it is, and only if it is written down, which is this.
+
+Two earlier entries in this file say the phone run is "blocked, `adb devices` reports nothing
+attached". That reading was right and the method was wrong: a bare `adb` call is not how this
+studio asks, because the phone is one device shared by every session. Presence is
+`phone.ps1 devices`; everything that touches the handset goes through the game's
+`scripts\device.ps1`, which claims the lease first.
