@@ -306,11 +306,28 @@ class BriefingPlate extends Control:
 
 	## The objective. Said plainly, because a player who does not know what they
 	## are digging toward is not playing toward anything.
+	## **Every line has to FIT.** The first filmed run of this screen had the
+	## third line clipped at the right edge: 63 monospace characters at size 30
+	## want about 1027 px and the margin leaves 1022. It filmed perfectly and read
+	## as a sentence the writer had trimmed badly. `run_smoke.gd` measures each of
+	## these against the real font now, so the next copy edit fails a test instead
+	## of losing a word on the phone.
 	const LINES: Array[String] = [
 		"Seven dead worlds. Each still has a core burning in it.",
-		"Cut down to the core and carry it out. That is one of seven.",
-		"What you cut on the way sells at the pad. Refit, then go deeper.",
-		"Fill all seven and the drive reaches the place they were going.",
+		"Cut down to the core and carry it out. One of seven.",
+		"What you cut sells at the pad. Refit, then go deeper.",
+		"Fill all seven and the drive reaches where they went.",
+	]
+
+	## Left margin, and the size the lines are drawn at. Named because the test
+	## measures against these rather than against copies of the numbers.
+	const MARGIN := 58.0
+	const BODY_SIZE := 30
+	const NOTE_SIZE := 28
+
+	const NOTES: Array[String] = [
+		"Nobody has said what killed these worlds.",
+		"Whatever is left of the answer is down there with the cores.",
 	]
 
 	func fonts(face: FontFile, mono: FontFile) -> void:
@@ -329,16 +346,16 @@ class BriefingPlate extends Control:
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Hud.GLOW)
 		var y := top + 130.0
 		for line in LINES:
-			draw_string(_mono, Vector2(58.0, y), line, HORIZONTAL_ALIGNMENT_LEFT, -1, 30, Hud.INK)
+			draw_string(_mono, Vector2(MARGIN, y), line,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, BODY_SIZE, Hud.INK)
 			y += 54.0
 		# **The explanation is what is withheld, never the goal.** Mystery is not
 		# knowing why these worlds died; it is not "what am I supposed to do".
-		draw_string(_mono, Vector2(58.0, y + 34.0),
-			"Nobody has said what killed these worlds.",
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Hud.DIM)
-		draw_string(_mono, Vector2(58.0, y + 72.0),
-			"Whatever is left of the answer is down there with the cores.",
-			HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Hud.DIM)
+		y += 34.0
+		for note in NOTES:
+			draw_string(_mono, Vector2(MARGIN, y), note,
+				HORIZONTAL_ALIGNMENT_LEFT, -1, NOTE_SIZE, Hud.DIM)
+			y += 38.0
 
 
 ## Settings and Notes are the same sheet with a different heading. It is already

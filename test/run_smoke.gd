@@ -138,6 +138,22 @@ func _check_the_way_in(main) -> void:
 	_t.eq(Classes.ALL.size(), 7,
 		"the contract promises seven worlds and the game has %d classes" % Classes.ALL.size())
 
+	# **Every line fits on the screen.** The first filmed run of this screen had
+	# the third line clipped at the right edge, and it filmed perfectly: a
+	# sentence missing its last word reads as bad writing, not as a layout bug.
+	# Measured against the real font rather than counted in characters.
+	var mono: FontFile = shell._mono
+	var room: float = shell._briefing.size.x - Shell.BriefingPlate.MARGIN * 2.0
+	_t.gt(room, 200.0, "the briefing has no width, so the layout has not resolved")
+	for line in Shell.BriefingPlate.LINES:
+		var w: float = mono.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1,
+			Shell.BriefingPlate.BODY_SIZE).x
+		_t.ok(w <= room, "\"%s\" is %.0f px wide in %.0f px of room" % [line, w, room])
+	for note in Shell.BriefingPlate.NOTES:
+		var w: float = mono.get_string_size(note, HORIZONTAL_ALIGNMENT_LEFT, -1,
+			Shell.BriefingPlate.NOTE_SIZE).x
+		_t.ok(w <= room, "\"%s\" is %.0f px wide in %.0f px of room" % [note, w, room])
+
 	# And the game is still not running behind it.
 	var held: float = main.sim.flight.depth()
 	main.press_pad(Vector2(0, 1))
