@@ -35,7 +35,7 @@ signal start_new
 signal resume
 signal erase
 
-enum Screen { TITLE, PLAYING, PAUSED, NOTES }
+enum Screen { TITLE, PLAYING, PAUSED, NOTES, BRIEFING }
 
 var screen: int = Screen.TITLE
 
@@ -45,6 +45,8 @@ var _title: Control
 var _pause: Control
 var _continue: Hud.PlateButton
 var _new: Hud.PlateButton
+var _briefing: Control
+var _begin: Hud.PlateButton
 var _confirm_wipe := false
 var _sheet_scroll := 0.0
 var _sheet_max := 0.0
@@ -75,6 +77,7 @@ func setup() -> void:
 	_apply_audio()
 
 	_build_title()
+	_build_briefing()
 	_build_pause()
 	_show()
 
@@ -109,6 +112,35 @@ func _build_title() -> void:
 		_show())
 
 
+## **The objective, said out loud, before the first descent.**
+##
+## His words on build 25: *"I am not sure what the goal of the game is."* The
+## title has carried "seven cores. one drive. one way out." since 0.5.0, which is
+## a tagline under a wordmark and is read for about two seconds. The plan's own
+## rule is that the objective is stated in the first two minutes because every
+## top game in the genre does it, and that the EXPLANATION is what gets withheld:
+## so this says what to do and never says what killed these worlds.
+##
+## It is its own screen rather than a line on the title because a new player has
+## to walk through it once, and returning players never see it: CONTINUE goes
+## straight to the game.
+func _build_briefing() -> void:
+	_briefing = BriefingPlate.new()
+	(_briefing as BriefingPlate).fonts(_face, _mono)
+	_briefing.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_briefing.mouse_filter = Control.MOUSE_FILTER_STOP
+	_briefing.visible = false
+	add_child(_briefing)
+
+	_begin = Hud.PlateButton.new()
+	_begin.setup("TAKE THE CONTRACT", _face, _mono)
+	_place(_begin, _briefing, -290.0)
+	_begin.pressed.connect(func():
+		screen = Screen.PLAYING
+		_show()
+		start_new.emit())
+
+
 func _place(b: Hud.PlateButton, parent: Control, from_bottom: float) -> void:
 	b.set_anchors_preset(Control.PRESET_BOTTOM_WIDE)
 	b.offset_left = 60.0
@@ -139,6 +171,7 @@ func _show() -> void:
 	# Assigning the phase next to a show call worked in four places out of five
 	# in a sibling game, and the fifth left a screen drawn over the whole game.
 	_title.visible = screen == Screen.TITLE
+	_briefing.visible = screen == Screen.BRIEFING
 	_pause.visible = screen == Screen.PAUSED or screen == Screen.NOTES
 	_continue.set_enabled(Save.exists())
 	_continue.set_caption("CONTINUE", "" if Save.exists() else "no run yet")
@@ -165,10 +198,12 @@ func playing() -> bool:
 ## `_new.pressed.emit()`, so the shot scripts written before the shell simply
 ## never got in: `light_a.png` is a photograph of the title screen filed as
 ## evidence about tunnel lighting.
+## NEW GAME goes to the briefing, not to the shaft. `start_new` fires when the
+## player takes the contract, so the run begins at the moment they have been told
+## what the run is for.
 func begin_new() -> void:
-	screen = Screen.PLAYING
+	screen = Screen.BRIEFING
 	_show()
-	start_new.emit()
 
 
 ## **Unwind ONE layer per press, and never quit without asking.** This is what
@@ -184,6 +219,9 @@ func go_back() -> void:
 			screen = Screen.PLAYING if Save.exists() else Screen.TITLE
 			if screen == Screen.PLAYING:
 				resume.emit()
+		Screen.BRIEFING:
+			# Back out of the contract without having started a run.
+			screen = Screen.TITLE
 		Screen.PLAYING:
 			pause_game()
 			return
@@ -258,6 +296,49 @@ class TitlePlate extends Control:
 		draw_string(_mono, Vector2(58.0, size.y - 470.0),
 			"v%s   build %s" % [Changelog.VERSION, BuildStamp.SHA],
 			HORIZONTAL_ALIGNMENT_LEFT, -1, 24, Hud.DIM)
+
+
+## What the run is for, in the salvager's terms. Four lines about what to DO and
+## one that says the explanation is down there rather than up here.
+class BriefingPlate extends Control:
+	var _face: FontFile
+	var _mono: FontFile
+
+	## The objective. Said plainly, because a player who does not know what they
+	## are digging toward is not playing toward anything.
+	const LINES: Array[String] = [
+		"Seven dead worlds. Each still has a core burning in it.",
+		"Cut down to the core and carry it out. That is one of seven.",
+		"What you cut on the way sells at the pad. Refit, then go deeper.",
+		"Fill all seven and the drive reaches the place they were going.",
+	]
+
+	func fonts(face: FontFile, mono: FontFile) -> void:
+		_face = face
+		_mono = mono
+
+	func _draw() -> void:
+		# Heavier than the title's wash: this one is read, not glanced at.
+		draw_rect(Rect2(Vector2.ZERO, size), Color(0.02, 0.021, 0.028, 0.93), true)
+		if _face == null:
+			return
+		var top := size.y * 0.24
+		draw_string(_face, Vector2(56.0, top), "THE CONTRACT",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 68, Hud.INK)
+		draw_string(_mono, Vector2(58.0, top + 46.0), "GRAVEWELL DRIVE - 0 OF 7 SLOTS FILLED",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 26, Hud.GLOW)
+		var y := top + 130.0
+		for line in LINES:
+			draw_string(_mono, Vector2(58.0, y), line, HORIZONTAL_ALIGNMENT_LEFT, -1, 30, Hud.INK)
+			y += 54.0
+		# **The explanation is what is withheld, never the goal.** Mystery is not
+		# knowing why these worlds died; it is not "what am I supposed to do".
+		draw_string(_mono, Vector2(58.0, y + 34.0),
+			"Nobody has said what killed these worlds.",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Hud.DIM)
+		draw_string(_mono, Vector2(58.0, y + 72.0),
+			"Whatever is left of the answer is down there with the cores.",
+			HORIZONTAL_ALIGNMENT_LEFT, -1, 28, Hud.DIM)
 
 
 ## Settings and Notes are the same sheet with a different heading. It is already

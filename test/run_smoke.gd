@@ -116,12 +116,39 @@ func _check_the_way_in(main) -> void:
 	_t.approx(main.sim.flight.depth(), before, 0.001,
 		"the game plays behind the title screen")
 
-	# NEW GAME, through the button.
+	# NEW GAME, through the button. It goes to the BRIEFING, because "I am not
+	# sure what the goal of the game is" is answered before the first descent
+	# rather than after it.
 	Save._reset_latch_for_tests()
 	shell._new.pressed.emit()
 	main.advance(0.1)
-	_t.eq(shell.screen, Shell.Screen.PLAYING, "NEW GAME did not start the game")
-	_t.eq(shell._title.visible, false, "the title is still drawn over the game")
+	_t.eq(shell.screen, Shell.Screen.BRIEFING, "NEW GAME did not offer the contract")
+	_t.eq(shell._briefing.visible, true, "the briefing is not drawn")
+	_t.eq(shell._title.visible, false, "the title is still drawn over the briefing")
+
+	# **It states the objective**, and the numbers in it are the real ones rather
+	# than a painted seven: a briefing that drifts from the drive is worse than
+	# none, because it is the one screen the player believes.
+	var said := " ".join(Shell.BriefingPlate.LINES)
+	_t.ok(said.contains("Seven") or said.contains("seven"),
+		"the contract never says how many cores the drive takes")
+	_t.ok(said.contains("core"), "the contract never mentions a core")
+	_t.ok(said.contains("sell") or said.contains("sells"),
+		"the contract never says what to do with what you dig up")
+	_t.eq(Classes.ALL.size(), 7,
+		"the contract promises seven worlds and the game has %d classes" % Classes.ALL.size())
+
+	# And the game is still not running behind it.
+	var held: float = main.sim.flight.depth()
+	main.press_pad(Vector2(0, 1))
+	main.advance(1.0)
+	_t.approx(main.sim.flight.depth(), held, 0.001, "the game plays behind the briefing")
+
+	# Take the contract, through the button a thumb presses.
+	shell._begin.pressed.emit()
+	main.advance(0.1)
+	_t.eq(shell.screen, Shell.Screen.PLAYING, "taking the contract did not start the game")
+	_t.eq(shell._briefing.visible, false, "the briefing is still drawn over the game")
 
 
 ## **The air and the rock are lit by ONE lamp, and the fan is cast and decoded
