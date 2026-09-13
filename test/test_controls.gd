@@ -95,6 +95,19 @@ func _game():
 	var main = scene.instantiate()
 	main.freeze()
 	main.start_run()
+	# **And then take the contract.** M21 put a briefing in front of the first
+	# descent, so `start_run()` now lands on `Screen.BRIEFING` rather than
+	# PLAYING, and `playing()` is false there. `_tick` returns immediately while
+	# the shell is not playing, so every hold below moved the ship 0.00 m and all
+	# nine assertions in this file failed at once - which reads exactly like a
+	# dead d-pad and was actually a game that had not started. A gate measuring a
+	# menu is the failure this file was written to prevent, one screen further in.
+	#
+	# Through the button the player presses, not by assigning `screen`: a harness
+	# that sets the state the control would set is not testing the control, which
+	# is the whole argument of this file. `run_smoke.gd` takes the same path.
+	if main._shell != null and main._shell.screen == Shell.Screen.BRIEFING:
+		main._shell._begin.pressed.emit()
 	# One tick with nothing held, so every node below is drawn from the sim the
 	# run actually started with rather than from the one `_ensure_booted` made.
 	main.advance(STEP, STEP)
@@ -157,6 +170,26 @@ func _travelled(main, axis: Vector3, from: Vector3) -> float:
 ## resting dead centre would come out as a full push to the RIGHT - which would
 ## make the positive control fail and the right-hand test pass for the worst
 ## possible reason.
+## **The harness reaches the flying game, and not a screen in front of it.**
+##
+## Every other check in this file measures where the ship ended up, and a ship
+## that never started moving satisfies "did not go the wrong way" perfectly. The
+## `TRAVELLED` floor below catches that per-direction, but it reports it as a
+## d-pad that moved the ship 0.00 m, which is what a broken control looks like.
+## On 2026-09-13 all nine of those assertions failed at once because M21 had put
+## the contract screen in front of the first descent and `_tick` returns while
+## the shell is not playing: nothing was wrong with the pad at all. This says so
+## in one line, before any of the measuring starts.
+func test_the_harness_gets_past_the_contract_and_into_the_game(t: TestHarness) -> void:
+	var main = _game()
+	t.eq(main._shell.screen, Shell.Screen.PLAYING,
+		"the harness is sitting on screen %d rather than PLAYING, so every hold in this file measures a menu and reads as a dead d-pad"
+			% int(main._shell.screen))
+	t.ok(main._shell.playing(),
+		"the shell says it is not playing, and _tick returns without advancing anything while that is true")
+	main.free()
+
+
 func test_the_pad_has_a_real_size_outside_the_tree(t: TestHarness) -> void:
 	var main = _game()
 	var pad = main._hud._pad
