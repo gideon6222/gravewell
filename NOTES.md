@@ -1333,3 +1333,20 @@ attached". That reading was right and the method was wrong: a bare `adb` call is
 studio asks, because the phone is one device shared by every session. Presence is
 `phone.ps1 devices`; everything that touches the handset goes through the game's
 `scripts\device.ps1`, which claims the lease first.
+
+### 59. Both new guards verified by reintroducing the fault
+
+Rule 11, run over the two guards added with the loop fix. Tree clean afterwards.
+
+| Fault reintroduced | Result |
+|---|---|
+| `sim.enter_hold()` removed from the OVER tap handler | **3 failures**, leading with "tapping a finished descent did not reach the Hold, which is where the game is" |
+| the cores dropped from the bank line | **3 failures**, printing the HUD's actual text: `0 cr   0 fil` |
+
+Both are real guards. The first one fails with a sentence that describes his
+complaint on build 25 in his own terms, which is what a regression test for a
+playtest note should read like.
+
+Note the counter guard caught all three of its assertions, including the one that
+the count TRACKS the drive rather than being a painted `0/7`: with the fault in,
+fitting a Rime core left the line unchanged.
