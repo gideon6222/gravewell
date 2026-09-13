@@ -76,6 +76,7 @@ func _run(main) -> void:
 	_check_there_is_always_a_way_on(main)
 	_check_the_buttons_do_their_jobs(main)
 	_check_the_ship_is_a_real_machine(main)
+	_check_the_goal_is_on_screen(main)
 	_check_the_hold_is_a_place(main)
 	_check_the_game_makes_a_sound(main)
 	_check_the_lamp_is_one_light(main)
@@ -535,6 +536,51 @@ func _check_the_ship_is_a_real_machine(main) -> void:
 
 ## The Hold is the screen he opens first, and the one Coreward got wrong four
 ## times running. These are the four things that made the fourth attempt work.
+## **The goal is legible while you are digging.**
+##
+## His words on build 25: "I am not sure what the goal of the game is." The drive
+## was written in exactly one room and that room could not be entered, so the
+## counter now sits on the descent HUD.
+##
+## A filmed run cannot check this. Movie Maker renders 1080x1920 while the UI is
+## laid out in about 1080x2338, so the top couple of hundred pixels are off the
+## frame and the bank line and the depth readout are both missing from every
+## sheet. That is the film's shape and not the game's, which is exactly why the
+## claim needs an assertion here instead of an eye on a contact sheet.
+func _check_the_goal_is_on_screen(main) -> void:
+	_t.begin("smoke > the goal is readable during a descent")
+	if main.sim.phase != Sim.Phase.DESCENT:
+		main.sim.redescend()
+	main.advance(0.5)
+
+	_t.eq(main._hud._bank.visible, true, "the bank line is hidden while digging")
+	_t.ok(main._hud._bank.text.contains("/7"),
+		"the descent HUD reads \"%s\", which does not say how much of the drive is filled"
+			% main._hud._bank.text)
+	_t.ok(main._hud._bank.text.contains("cores"),
+		"the drive count is on screen without the word that says what it counts")
+
+	# And it tracks the drive rather than being a painted "0/7".
+	main.sim.fit_core(Classes.RIME)
+	main.advance(0.5)
+	_t.ok(main._hud._bank.text.contains("1/7"),
+		"a core went into the drive and the HUD still reads \"%s\"" % main._hud._bank.text)
+	# `.clear()`, never `= []`: assigning an untyped array literal to an
+	# `Array[int]` is a SCRIPT ERROR rather than a failed assertion, so the
+	# assertions all pass and `check.ps1` fails the step on the error count.
+	# Second time this repo has paid for it (NOTES 48).
+	main.sim.core_classes.clear()
+
+	# On screen, not merely assigned: a label pushed off the top of the viewport
+	# is the failure the film actually showed, and it reads as a pass everywhere
+	# that only checks the text.
+	var line: Rect2 = main._hud._bank.get_global_rect()
+	var vis: Rect2 = main.get_viewport().get_visible_rect()
+	_t.ok(line.position.y >= vis.position.y and line.end.y <= vis.end.y,
+		"the bank line sits at y %.0f..%.0f in a viewport of %.0f..%.0f"
+			% [line.position.y, line.end.y, vis.position.y, vis.end.y])
+
+
 func _check_the_hold_is_a_place(main) -> void:
 	_t.begin("smoke > the Hold is a place, not a panel")
 	main.sim.credits = 100000.0
