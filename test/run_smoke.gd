@@ -142,9 +142,15 @@ func _check_the_way_in(main) -> void:
 	# the third line clipped at the right edge, and it filmed perfectly: a
 	# sentence missing its last word reads as bad writing, not as a layout bug.
 	# Measured against the real font rather than counted in characters.
+	# **Measured against the PROJECT's width, not the control's.** The first
+	# version of this guard used `shell._briefing.size.x`, which is whatever the
+	# harness viewport happens to be, so it passed with the clipped line put back
+	# and proved nothing. 1080 is the width the phone actually has.
 	var mono: FontFile = shell._mono
-	var room: float = shell._briefing.size.x - Shell.BriefingPlate.MARGIN * 2.0
-	_t.gt(room, 200.0, "the briefing has no width, so the layout has not resolved")
+	var wide: float = float(ProjectSettings.get_setting("display/window/size/viewport_width"))
+	_t.approx(wide, 1080.0, 0.5,
+		"the project is %.0f wide, so this guard is measuring against the wrong screen" % wide)
+	var room: float = wide - Shell.BriefingPlate.MARGIN * 2.0
 	for line in Shell.BriefingPlate.LINES:
 		var w: float = mono.get_string_size(line, HORIZONTAL_ALIGNMENT_LEFT, -1,
 			Shell.BriefingPlate.BODY_SIZE).x

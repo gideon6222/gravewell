@@ -1350,3 +1350,28 @@ playtest note should read like.
 Note the counter guard caught all three of its assertions, including the one that
 the count TRACKS the drive rather than being a painted `0/7`: with the fault in,
 fitting a Rime core left the line unchanged.
+
+### 60. M21, and a guard that could not fail, twice in one screen
+
+The briefing exists: NEW GAME opens THE CONTRACT, which states the objective in
+four lines and withholds the explanation in two. `start_new` fires on taking the
+contract, so the run begins once the player has been told what it is for.
+
+**The film found the bug and the first guard could not.** Line three was clipped
+at the right edge: measured, 1039 px of text in the 964 px the margins leave on a
+1080 screen (M). It filmed perfectly, which is the trap - a sentence missing its
+last word reads as bad writing, not as a layout fault.
+
+The guard written to catch it measured the room as `shell._briefing.size.x`, the
+control's size **in the headless harness**, rather than the width the phone
+actually has. The control fills whatever viewport the harness makes, so there was
+always enough room and the comparison could never be false: with the clipped line
+put straight back, 202 assertions passed. It now measures against
+`display/window/size/viewport_width` and asserts that is 1080, and it fails with
+the fault in and passes with it out.
+
+**That is the third guard this session that derived its limit from the thing it
+was checking**, after the smoke check that called `redescend()` instead of
+tapping and the two drive tests that compared a timestamp to itself. The tell is
+the same every time: the assertion's expected value comes from the same place as
+its actual one.

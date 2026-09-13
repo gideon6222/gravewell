@@ -307,11 +307,11 @@ class BriefingPlate extends Control:
 	## The objective. Said plainly, because a player who does not know what they
 	## are digging toward is not playing toward anything.
 	## **Every line has to FIT.** The first filmed run of this screen had the
-	## third line clipped at the right edge: 63 monospace characters at size 30
-	## want about 1027 px and the margin leaves 1022. It filmed perfectly and read
-	## as a sentence the writer had trimmed badly. `run_smoke.gd` measures each of
-	## these against the real font now, so the next copy edit fails a test instead
-	## of losing a word on the phone.
+	## third line clipped at the right edge: measured, it is 1039 px wide in the
+	## 964 px these margins leave on a 1080 screen (M). It filmed perfectly and
+	## read as a sentence the writer had trimmed badly. `run_smoke.gd` measures
+	## each of these against the real font now, so the next copy edit fails a test
+	## instead of losing a word on the phone.
 	const LINES: Array[String] = [
 		"Seven dead worlds. Each still has a core burning in it.",
 		"Cut down to the core and carry it out. One of seven.",
